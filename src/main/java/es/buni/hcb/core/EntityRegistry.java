@@ -1,5 +1,7 @@
 package es.buni.hcb.core;
 
+import es.buni.hcb.core.events.EventBus;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -8,8 +10,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class EntityRegistry {
     private final Map<String, Entity> entities;
 
+    private final EventBus eventBus = new EventBus();
+
+    public EventBus getEventBus() {
+        return eventBus;
+    }
+
     public EntityRegistry() {
-        this.entities = new ConcurrentHashMap<>();;
+        this.entities = new ConcurrentHashMap<>();
     }
 
     public void register(Entity entity) {

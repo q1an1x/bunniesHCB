@@ -83,6 +83,7 @@ public class Dimmable extends Light {
 
         if (address.equals(statusDimmingValueAddress) || address.equals(dimmingValueAddress)) {
             onBrightnessChanged(brightness);
+            publishStateChanged("brightness", brightness);
         }
     }
 

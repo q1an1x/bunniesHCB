@@ -90,6 +90,7 @@ public class Tunable extends Dimmable {
 
         if (address.equals(statusColorTemperatureAddress) || address.equals(colorTemperatureValueAddress)) {
             onColorTemperatureChanged(colorTemperature);
+            publishStateChanged("colorTemperature", colorTemperature);
         }
     }
 

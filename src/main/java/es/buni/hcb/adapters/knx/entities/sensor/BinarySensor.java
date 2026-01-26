@@ -56,6 +56,7 @@ public class BinarySensor extends KNXEntity {
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
         if (address.equals(stateAddress)) {
             onStateChanged(state);
+            publishStateChanged(state);
         }
     }
 

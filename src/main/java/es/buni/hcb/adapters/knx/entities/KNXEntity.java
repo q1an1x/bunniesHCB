@@ -14,7 +14,7 @@ public abstract class KNXEntity extends Entity {
     public abstract Set<GroupAddress> groupAddresses();
 
     protected KNXEntity(KNXAdapter adapter, String location, String id) {
-        super(location, id);
+        super(adapter, location, id);
         this.adapter = adapter;
     }
 

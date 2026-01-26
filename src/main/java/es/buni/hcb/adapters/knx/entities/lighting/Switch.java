@@ -78,6 +78,7 @@ public class Switch extends KNXEntity {
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
         if (address.equals(statusSwitchAddress) || address.equals(switchAddress)) {
             onSwitchStatusChanged(on);
+            publishStateChanged("switch", on);
         }
     }
 
