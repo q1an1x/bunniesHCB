@@ -1,10 +1,11 @@
 package es.buni.hcb.adapters.knx.entities.lighting;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
+import es.buni.hcb.utils.Logger;
 import io.calimero.GroupAddress;
-import io.calimero.process.ProcessCommunication;
+import io.calimero.datapoint.StateDP;
+import io.calimero.dptxlator.DPTXlator2ByteUnsigned;
 import io.calimero.process.ProcessEvent;
-import io.calimero.process.ProcessListener;
 
 import java.util.Set;
 
@@ -12,6 +13,8 @@ public class Tunable extends Dimmable {
 
     protected final GroupAddress colorTemperatureValueAddress;
     protected final GroupAddress statusColorTemperatureAddress;
+
+    private final StateDP colorTemperatureDP;
 
     private int colorTemperature;
 
@@ -69,14 +72,36 @@ public class Tunable extends Dimmable {
 
         colorTemperatureValueAddress = new GroupAddress(colorTemperatureValueMainGroup, colorTemperatureValueMiddleGroup, colorTemperatureValueSubGroup);
         statusColorTemperatureAddress = new GroupAddress(statusColorTemperatureMainGroup, statusColorTemperatureMiddleGroup, statusColorTemperatureSubGroup);
+
+        colorTemperatureDP =
+                new StateDP(
+                        statusColorTemperatureAddress,
+                        "Color Temperature",
+                        7, "7.600"
+                );
+        colorTemperatureDP.addUpdatingAddress(colorTemperatureValueAddress);
     }
 
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         if (address.equals(statusColorTemperatureAddress) || address.equals(colorTemperatureValueAddress)) {
-            int newTemp = ProcessListener.asUnsigned(event, ProcessCommunication.UNSCALED);
-            if (newTemp != colorTemperature) {
-                colorTemperature = newTemp;
+            byte[] asdu = event.getASDU();
+
+            if (asdu.length < 2) {
+                return false;
+            }
+
+            DPTXlator2ByteUnsigned t =
+                    new DPTXlator2ByteUnsigned(
+                            DPTXlator2ByteUnsigned.DPT_ABSOLUTE_COLOR_TEMPERATURE
+                    );
+
+            t.setData(asdu);
+
+            int newKelvin = t.getValueUnsigned();
+
+            if (newKelvin != colorTemperature) {
+                colorTemperature = newKelvin;
                 return true;
             }
         }
@@ -106,11 +131,12 @@ public class Tunable extends Dimmable {
     }
 
     private void readColorTemperature() throws Exception {
-        colorTemperature = (int) adapter.communicator().readFloat(statusColorTemperatureAddress);
+
+        colorTemperature = (int) adapter.communicator().readNumeric(colorTemperatureDP);
     }
 
     private void writeColorTemperature(int colorTemperature) throws Exception {
-        adapter.communicator().write(colorTemperatureValueAddress, colorTemperature, ProcessCommunication.UNSCALED);
+        adapter.communicator().write(colorTemperatureDP, String.valueOf(colorTemperature));
     }
 
     @Override
