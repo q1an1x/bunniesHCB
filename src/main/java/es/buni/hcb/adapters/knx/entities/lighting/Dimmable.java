@@ -88,13 +88,15 @@ public class Dimmable extends Light {
         }
     }
 
-    protected void onBrightnessChanged(int newValue) {}
+    protected void onBrightnessChanged(int newValue) {
+        Logger.info(getId() + " brightness changed to " + newValue);
+    }
 
     @Override
     public void initialize() throws Exception {
-        super.initialize();
-
         readBrightness();
+
+        super.initialize();
     }
 
     private void readBrightness() throws Exception {

@@ -94,13 +94,15 @@ public class Tunable extends Dimmable {
         }
     }
 
-    protected void onColorTemperatureChanged(int newValue) {}
+    protected void onColorTemperatureChanged(int newValue) {
+        Logger.info(getId() + " color temperature changed to " + newValue);
+    }
 
     @Override
     public void initialize() throws Exception {
-        super.initialize();
-
         readColorTemperature();
+
+        super.initialize();
     }
 
     private void readColorTemperature() throws Exception {
