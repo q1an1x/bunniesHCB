@@ -22,4 +22,5 @@ repositories {
 
 dependencies {
     implementation("io.calimero:calimero-core:3.0-M1")
+    implementation("io.github.hap-java:hap:2.0.7")
 }
