@@ -1,6 +1,7 @@
 package es.buni.hcb.adapters.knx.entities.lighting;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
+import es.buni.hcb.utils.Logger;
 import io.calimero.GroupAddress;
 import io.calimero.process.ProcessCommunication;
 import io.calimero.process.ProcessEvent;
@@ -67,7 +68,7 @@ public class Dimmable extends Light {
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         if (address.equals(statusDimmingValueAddress) || address.equals(dimmingValueAddress)) {
-            int newState = ProcessListener.asUnsigned(event, ProcessCommunication.UNSCALED);
+            int newState = ProcessListener.asUnsigned(event, ProcessCommunication.SCALING);
             if (newState != brightness) {
                 brightness = newState;
                 return true;
