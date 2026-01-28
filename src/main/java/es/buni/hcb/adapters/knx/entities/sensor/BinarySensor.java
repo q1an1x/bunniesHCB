@@ -69,9 +69,17 @@ public class BinarySensor extends KNXEntity {
     @Override
     public void initialize() throws Exception {
         this.readState();
+
+        super.initialize();
     }
 
     private void readState() throws Exception {
         state = invert != adapter.communicator().readBool(stateAddress);
+    }
+
+    @Override
+    public String toString() {
+        return super.toString() + ", "
+                + "state: " + getState();
     }
 }
