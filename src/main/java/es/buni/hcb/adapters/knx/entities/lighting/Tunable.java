@@ -162,14 +162,14 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
     @Override
     public CompletableFuture<Integer> getColorTemperature() {
         return CompletableFuture.completedFuture(
-                kelvinToMirek(getColorTemperatureValue())
+                convert(getColorTemperatureValue())
         );
     }
 
     @Override
     public CompletableFuture<Void> setColorTemperature(Integer value) throws Exception {
         setColorTemperatureValue(
-                mirekToKelvin(value)
+                convert(value)
         );
 
         Logger.info("HomeKit set " + getNamedId() + " color temperature to " + colorTemperature);
@@ -188,25 +188,15 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
 
     @Override
     public int getMinColorTemperature() {
-        return kelvinToMirek(COLOR_TEMPERATURE_MAX_KELVIN);
+        return convert(COLOR_TEMPERATURE_MAX_KELVIN);
     }
 
     @Override
     public int getMaxColorTemperature() {
-        return kelvinToMirek(COLOR_TEMPERATURE_MIN_KELVIN);
+        return convert(COLOR_TEMPERATURE_MIN_KELVIN);
     }
 
-    private static int clamp(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
-    }
-
-    private static int mirekToKelvin(int mirek) {
-        return 1000000 / mirek;
-    }
-
-    private static int kelvinToMirek(int kelvin) {
-        return 1000000 / kelvin;
-
-
+    private static int convert(int value) {
+        return 1000000 / value;
     }
 }
