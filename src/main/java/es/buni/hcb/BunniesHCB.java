@@ -19,7 +19,16 @@ public class BunniesHCB {
     private static final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     public static void main(String[] args) {
-        Logger.info("Starting bunniesHomeControlBus");
+        for (String arg : args) {
+            if ("--debug".equals(arg)) {
+                Debug.ENABLED = true;
+                break;
+            }
+        }
+
+        LoggingBootstrap.configure(Debug.ENABLED);
+
+        Logger.info("Starting bunniesHomeControlBus build " + Utils.BUILD_DATE);
 
         NetworkContext networkContext;
         try {
