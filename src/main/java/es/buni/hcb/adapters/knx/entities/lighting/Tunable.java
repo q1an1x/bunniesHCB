@@ -16,6 +16,10 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
     public static final int COLOR_TEMPERATURE_MIN_KELVIN = 2702;
     public static final int COLOR_TEMPERATURE_MAX_KELVIN = 6535;
 
+    private static final long COLOR_TEMPERATURE_DIMMING_TIME_MS = 5000;
+
+    private volatile long colorTemperatureLastSetAt = 0;
+
     protected final GroupAddress colorTemperatureValueAddress;
     protected final GroupAddress statusColorTemperatureAddress;
 
@@ -45,6 +49,7 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
 
     public void setColorTemperatureValue(int colorTemperature) throws Exception {
         this.colorTemperature = colorTemperature;
+        this.colorTemperatureLastSetAt = System.currentTimeMillis();
         writeColorTemperature(colorTemperature);
     }
 
@@ -96,6 +101,10 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         if (address.equals(statusColorTemperatureAddress) || address.equals(colorTemperatureValueAddress)) {
+            if (System.currentTimeMillis() - colorTemperatureLastSetAt < COLOR_TEMPERATURE_DIMMING_TIME_MS) {
+                return false;
+            }
+
             byte[] asdu = event.getASDU();
 
             if (asdu.length < 2) {

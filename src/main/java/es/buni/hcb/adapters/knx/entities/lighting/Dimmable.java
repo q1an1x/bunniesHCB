@@ -13,6 +13,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public class Dimmable extends Light implements AccessoryWithBrightness {
+    private static final long DIMMING_TIME_MS = 3000;
+
+    private volatile long brightnessLastSetAt = 0;
 
     protected final GroupAddress dimmingValueAddress;
     protected final GroupAddress statusDimmingValueAddress;
@@ -39,6 +42,7 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
 
     public void setBrightnessValue(int brightness) throws Exception {
         this.brightness = brightness;
+        this.brightnessLastSetAt = System.currentTimeMillis();
         writeBrightness(brightness);
     }
 
@@ -73,6 +77,10 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         if (address.equals(statusDimmingValueAddress) || address.equals(dimmingValueAddress)) {
+            if (System.currentTimeMillis() - brightnessLastSetAt < DIMMING_TIME_MS) {
+                return false;
+            }
+
             int newState = ProcessListener.asUnsigned(event, ProcessCommunication.SCALING);
             if (newState != brightness) {
                 brightness = newState;
