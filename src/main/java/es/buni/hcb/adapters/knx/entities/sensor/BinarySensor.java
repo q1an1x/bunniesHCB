@@ -60,6 +60,10 @@ public class BinarySensor extends KNXEntity {
     protected void onStateChanged(boolean newValue) {
         Logger.info("Sensor " + getNamedId() + " state changed to " + newValue);
         publishStateChanged(state);
+
+        if (subscribeCallback != null) {
+            subscribeCallback.changed();
+        }
     }
 
     @Override

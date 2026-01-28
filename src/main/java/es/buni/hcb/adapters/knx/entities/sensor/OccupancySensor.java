@@ -13,15 +13,6 @@ public class OccupancySensor extends BinarySensor implements OccupancySensorAcce
     }
 
     @Override
-    protected void onStateChanged(boolean newValue) {
-        super.onStateChanged(newValue);
-
-        if (subscribeCallback != null) {
-            subscribeCallback.changed();
-        }
-    }
-
-    @Override
     public CompletableFuture<OccupancyDetectedEnum> getOccupancyDetected() {
         return CompletableFuture.completedFuture(getState()
                         ? OccupancyDetectedEnum.DETECTED

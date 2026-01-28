@@ -3,6 +3,7 @@ package es.buni.hcb.config;
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.adapters.knx.entities.HealthMonitor;
 import es.buni.hcb.adapters.knx.entities.lighting.Tunable;
+import es.buni.hcb.adapters.knx.entities.sensor.MotionSensor;
 import es.buni.hcb.adapters.knx.entities.sensor.OccupancySensor;
 import io.calimero.GroupAddress;
 
@@ -17,6 +18,11 @@ public class KNXEntities {
         adapter.register(new OccupancySensor(
                 adapter, "bathroom", "sensor.presence",
                 5, 1, 7
+        ));
+
+        adapter.register(new MotionSensor(
+                adapter, "bathroom", "sensor.motion",
+                5, 1, 4
         ));
 
         adapter.register(Tunable.fromConvention(
