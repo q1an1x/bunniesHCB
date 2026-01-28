@@ -35,16 +35,16 @@ public abstract class Adapter {
     }
 
     public void register(Entity entity) {
-        if (entities.containsKey(entity.getId())) {
-            throw new IllegalStateException("Duplicate entity id: " + entity.getId());
+        if (entities.containsKey(entity.getNamedId())) {
+            throw new IllegalStateException("Duplicate entity id: " + entity.getNamedId());
         }
 
-        entities.put(entity.getId(), entity);
+        entities.put(entity.getNamedId(), entity);
         registry.register(entity);
     }
 
     public void unregister(Entity entity) {
-        entities.remove(entity.getId());
+        entities.remove(entity.getNamedId());
         registry.unregister(entity);
     }
 
@@ -53,7 +53,7 @@ public abstract class Adapter {
             try {
                 entity.initialize();
             } catch (Exception e) {
-                Logger.error("Entity initialization failed: " + entity.getId(), e);
+                Logger.error("Entity initialization failed: " + entity.getNamedId(), e);
             }
         }
     }
@@ -64,7 +64,7 @@ public abstract class Adapter {
                 entity.shutdown();
                 unregister(entity);
             } catch (Exception e) {
-                Logger.error("Entity shutdown failed: " + entity.getId(), e);
+                Logger.error("Entity shutdown failed: " + entity.getNamedId(), e);
             }
         }
     }

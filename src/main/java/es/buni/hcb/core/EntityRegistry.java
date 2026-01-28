@@ -21,14 +21,14 @@ public class EntityRegistry {
     }
 
     public void register(Entity entity) {
-        if (entities.containsKey(entity.getId())) {
-            throw new IllegalStateException("Duplicate entity id: " + entity.getId());
+        if (entities.containsKey(entity.getNamedId())) {
+            throw new IllegalStateException("Duplicate entity id: " + entity.getNamedId());
         }
-        entities.put(entity.getId(), entity);
+        entities.put(entity.getNamedId(), entity);
     }
 
     public void unregister(Entity entity) {
-        remove(entity.getId());
+        remove(entity.getNamedId());
     }
 
     public Entity get(String id) {
@@ -40,7 +40,7 @@ public class EntityRegistry {
     }
 
     private void add(Entity entity) {
-        entities.put(entity.getId(), entity);
+        entities.put(entity.getNamedId(), entity);
     }
 
     private void remove(String id) {

@@ -15,7 +15,7 @@ public class Dimmable extends Light {
     protected final GroupAddress statusDimmingValueAddress;
     protected final GroupAddress dimmingValueTimeAddress;
 
-    private int brightness;
+    private volatile int brightness;
 
     @Override
     public Set<GroupAddress> groupAddresses() {
@@ -89,7 +89,7 @@ public class Dimmable extends Light {
     }
 
     protected void onBrightnessChanged(int newValue) {
-        Logger.info(getId() + " brightness changed to " + newValue);
+        Logger.info(getNamedId() + " brightness changed to " + newValue);
     }
 
     @Override

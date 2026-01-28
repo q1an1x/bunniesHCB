@@ -3,7 +3,7 @@ package es.buni.hcb.config;
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.adapters.knx.entities.HealthMonitor;
 import es.buni.hcb.adapters.knx.entities.lighting.Tunable;
-import es.buni.hcb.adapters.knx.entities.sensor.BinarySensor;
+import es.buni.hcb.adapters.knx.entities.sensor.OccupancySensor;
 import io.calimero.GroupAddress;
 
 import java.util.Set;
@@ -14,7 +14,7 @@ public class KNXEntities {
                 new GroupAddress(5, 1, 99)
         )));
 
-        adapter.register(new BinarySensor(
+        adapter.register(new OccupancySensor(
                 adapter, "bathroom", "sensor.presence",
                 5, 1, 7
         ));

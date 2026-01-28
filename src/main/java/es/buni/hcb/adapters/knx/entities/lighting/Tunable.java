@@ -16,7 +16,7 @@ public class Tunable extends Dimmable {
 
     private final StateDP colorTemperatureDP;
 
-    private int colorTemperature;
+    private volatile int colorTemperature;
 
     @Override
     public Set<GroupAddress> groupAddresses() {
@@ -120,7 +120,7 @@ public class Tunable extends Dimmable {
     }
 
     protected void onColorTemperatureChanged(int newValue) {
-        Logger.info(getId() + " color temperature changed to " + newValue);
+        Logger.info(getNamedId() + " color temperature changed to " + newValue);
     }
 
     @Override

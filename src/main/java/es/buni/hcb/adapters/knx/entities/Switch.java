@@ -1,7 +1,6 @@
-package es.buni.hcb.adapters.knx.entities.lighting;
+package es.buni.hcb.adapters.knx.entities;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
-import es.buni.hcb.adapters.knx.entities.KNXEntity;
 import es.buni.hcb.utils.Logger;
 import io.calimero.GroupAddress;
 import io.calimero.process.ProcessEvent;
@@ -14,7 +13,7 @@ public class Switch extends KNXEntity {
     protected final GroupAddress switchAddress;
     protected final GroupAddress statusSwitchAddress;
 
-    private boolean on;
+    private volatile boolean on;
 
     @Override
     public Set<GroupAddress> groupAddresses() {
@@ -76,14 +75,12 @@ public class Switch extends KNXEntity {
 
     @Override
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
-        if (address.equals(statusSwitchAddress) || address.equals(switchAddress)) {
-            onSwitchStatusChanged(on);
-            publishStateChanged("switch", on);
-        }
+        onSwitchStatusChanged(on);
     }
 
     protected void onSwitchStatusChanged(boolean newValue) {
-        Logger.info(getId() + " turned " + (newValue ? "on" : "off"));
+        Logger.info(getNamedId() + " turned " + (newValue ? "on" : "off"));
+        publishStateChanged("switch", on);
     }
 
     @Override

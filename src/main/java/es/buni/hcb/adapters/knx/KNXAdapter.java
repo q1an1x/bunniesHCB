@@ -202,7 +202,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
                     entity.handleBusUpdate(address, event);
                 } catch (Exception ex) {
                     Logger.error(
-                            "Error handling KNX update for " + entity.getId() + " (" + address + ")",
+                            "Error handling KNX update for " + entity.getNamedId() + " (" + address + ")",
                             ex
                     );
                 }

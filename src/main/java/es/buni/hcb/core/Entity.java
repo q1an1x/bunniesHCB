@@ -4,14 +4,22 @@ import es.buni.hcb.adapters.Adapter;
 import es.buni.hcb.core.events.EntityEvent;
 import es.buni.hcb.core.events.EventBus;
 import es.buni.hcb.core.events.StateChangedEvent;
+import es.buni.hcb.interfaces.homekit.HomeKitInterface;
 import es.buni.hcb.utils.Logger;
+import es.buni.hcb.utils.Utils;
+import io.github.hapjava.accessories.HomekitAccessory;
+import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback;
 
-public abstract class Entity {
+import java.util.concurrent.CompletableFuture;
+
+public abstract class Entity implements HomekitAccessory {
 
     private final String id;
     private final String location;
 
     private final EntityRegistry registry;
+
+    protected HomekitCharacteristicChangeCallback subscribeCallback;
 
     public Entity(Adapter adapter, String location, String id) {
         this.registry = adapter.getRegistry();
@@ -32,14 +40,14 @@ public abstract class Entity {
     }
 
     public void publishStateChanged(Object value) {
-        publishEvent(StateChangedEvent.of(getId(), value));
+        publishEvent(StateChangedEvent.of(getNamedId(), value));
     }
 
     public void publishStateChanged(String property, Object value) {
-        publishEvent(StateChangedEvent.of(getId(), property, value));
+        publishEvent(StateChangedEvent.of(getNamedId(), property, value));
     }
 
-    public String getId() {
+    public String getNamedId() {
         return id;
     }
 
@@ -47,9 +55,13 @@ public abstract class Entity {
         return location;
     }
 
+    public String getType() {
+        return getClass().getSimpleName();
+    }
+
     @Override
     public String toString() {
-        return getId() + ", " + getClass().getSimpleName();
+        return getNamedId() + ", " + getType();
     }
 
     public void initialize() throws Exception {
@@ -57,5 +69,46 @@ public abstract class Entity {
     };
 
     public void shutdown() {
+    }
+
+    public boolean isHomeKitAccessory() {
+        return getPrimaryService() != null;
+    }
+
+    // --- Homekit Accessory ---
+
+    @Override
+    public int getId() {
+        return getNamedId().hashCode() & 0x7FFFFFFF;
+    }
+
+    @Override
+    public CompletableFuture<String> getName() {
+        return getSerialNumber();
+    }
+
+    @Override
+    public void identify() {
+        Logger.warn("HomeKit: identifying " + getNamedId());
+    }
+
+    @Override
+    public CompletableFuture<String> getSerialNumber() {
+        return CompletableFuture.completedFuture(getNamedId());
+    }
+
+    @Override
+    public CompletableFuture<String> getModel() {
+        return CompletableFuture.completedFuture(getType());
+    }
+
+    @Override
+    public CompletableFuture<String> getManufacturer() {
+        return CompletableFuture.completedFuture(HomeKitInterface.HOMEKIT_ENTITY_MANUFACTURER);
+    }
+
+    @Override
+    public CompletableFuture<String> getFirmwareRevision() {
+        return CompletableFuture.completedFuture(Utils.BUILD_DATE);
     }
 }

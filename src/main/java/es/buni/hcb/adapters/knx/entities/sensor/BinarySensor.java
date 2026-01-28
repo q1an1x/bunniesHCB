@@ -12,7 +12,7 @@ import java.util.Set;
 public class BinarySensor extends KNXEntity {
 
     private final GroupAddress stateAddress;
-    private boolean state;
+    private volatile boolean state;
     private final boolean invert;
 
     @Override
@@ -54,14 +54,12 @@ public class BinarySensor extends KNXEntity {
 
     @Override
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
-        if (address.equals(stateAddress)) {
-            onStateChanged(state);
-            publishStateChanged(state);
-        }
+        onStateChanged(state);
     }
 
     protected void onStateChanged(boolean newValue) {
-        Logger.info("Sensor " + getId() + " state changed to " + newValue);
+        Logger.info("Sensor " + getNamedId() + " state changed to " + newValue);
+        publishStateChanged(state);
     }
 
     @Override
