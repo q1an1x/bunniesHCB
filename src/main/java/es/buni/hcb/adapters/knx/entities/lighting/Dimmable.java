@@ -6,16 +6,21 @@ import io.calimero.GroupAddress;
 import io.calimero.process.ProcessCommunication;
 import io.calimero.process.ProcessEvent;
 import io.calimero.process.ProcessListener;
+import io.github.hapjava.accessories.optionalcharacteristic.AccessoryWithBrightness;
+import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback;
 
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
-public class Dimmable extends Light {
+public class Dimmable extends Light implements AccessoryWithBrightness {
 
     protected final GroupAddress dimmingValueAddress;
     protected final GroupAddress statusDimmingValueAddress;
     protected final GroupAddress dimmingValueTimeAddress;
 
     private volatile int brightness;
+
+    private HomekitCharacteristicChangeCallback brightnessCallback;
 
     @Override
     public Set<GroupAddress> groupAddresses() {
@@ -28,11 +33,11 @@ public class Dimmable extends Light {
         );
     }
 
-    public int getBrightness() {
+    public int getBrightnessValue() {
         return brightness;
     }
 
-    public void setBrightness(int brightness) throws Exception {
+    public void setBrightnessValue(int brightness) throws Exception {
         this.brightness = brightness;
         writeBrightness(brightness);
     }
@@ -90,6 +95,10 @@ public class Dimmable extends Light {
 
     protected void onBrightnessChanged(int newValue) {
         Logger.info(getNamedId() + " brightness changed to " + newValue);
+
+        if (brightnessCallback != null) {
+            brightnessCallback.changed();
+        }
     }
 
     @Override
@@ -113,4 +122,25 @@ public class Dimmable extends Light {
                 + "brightness: " + brightness;
     }
 
+    @Override
+    public CompletableFuture<Integer> getBrightness() {
+        return CompletableFuture.completedFuture(getBrightnessValue());
+    }
+
+    @Override
+    public CompletableFuture<Void> setBrightness(Integer value) throws Exception {
+        setBrightnessValue(value);
+        Logger.info("HomeKit set " + getNamedId() + " brightness to " + brightness);
+        return null;
+    }
+
+    @Override
+    public void subscribeBrightness(HomekitCharacteristicChangeCallback callback) {
+        brightnessCallback = callback;
+    }
+
+    @Override
+    public void unsubscribeBrightness() {
+        brightnessCallback = null;
+    }
 }

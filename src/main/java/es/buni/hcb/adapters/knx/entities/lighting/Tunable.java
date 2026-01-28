@@ -6,17 +6,25 @@ import io.calimero.GroupAddress;
 import io.calimero.datapoint.StateDP;
 import io.calimero.dptxlator.DPTXlator2ByteUnsigned;
 import io.calimero.process.ProcessEvent;
+import io.github.hapjava.accessories.optionalcharacteristic.AccessoryWithColorTemperature;
+import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback;
 
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
-public class Tunable extends Dimmable {
+public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
+    public static final int COLOR_TEMPERATURE_MIN_KELVIN = 2702;
+    public static final int COLOR_TEMPERATURE_MAX_KELVIN = 6535;
 
     protected final GroupAddress colorTemperatureValueAddress;
     protected final GroupAddress statusColorTemperatureAddress;
 
-    private final StateDP colorTemperatureDP;
+    private final StateDP statusColorTemperatureDP;
+    private final StateDP colorTemperatureValueDP;
 
     private volatile int colorTemperature;
+
+    private HomekitCharacteristicChangeCallback colorTemperatureCallback;
 
     @Override
     public Set<GroupAddress> groupAddresses() {
@@ -31,11 +39,11 @@ public class Tunable extends Dimmable {
         );
     }
 
-    public int getColorTemperature() {
+    public int getColorTemperatureValue() {
         return colorTemperature;
     }
 
-    public void setColorTemperature(int colorTemperature) throws Exception {
+    public void setColorTemperatureValue(int colorTemperature) throws Exception {
         this.colorTemperature = colorTemperature;
         writeColorTemperature(colorTemperature);
     }
@@ -73,13 +81,16 @@ public class Tunable extends Dimmable {
         colorTemperatureValueAddress = new GroupAddress(colorTemperatureValueMainGroup, colorTemperatureValueMiddleGroup, colorTemperatureValueSubGroup);
         statusColorTemperatureAddress = new GroupAddress(statusColorTemperatureMainGroup, statusColorTemperatureMiddleGroup, statusColorTemperatureSubGroup);
 
-        colorTemperatureDP =
-                new StateDP(
-                        statusColorTemperatureAddress,
-                        "Color Temperature",
-                        7, "7.600"
-                );
-        colorTemperatureDP.addUpdatingAddress(colorTemperatureValueAddress);
+        statusColorTemperatureDP = new StateDP(
+                statusColorTemperatureAddress,
+                "Color Temperature",
+                7, "7.600"
+        );
+        colorTemperatureValueDP = new StateDP(
+                colorTemperatureValueAddress,
+                "Color Temperature",
+                7, "7.600"
+        );
     }
 
     @Override
@@ -121,6 +132,10 @@ public class Tunable extends Dimmable {
 
     protected void onColorTemperatureChanged(int newValue) {
         Logger.info(getNamedId() + " color temperature changed to " + newValue);
+
+        if (colorTemperatureCallback != null) {
+            colorTemperatureCallback.changed();
+        }
     }
 
     @Override
@@ -131,12 +146,11 @@ public class Tunable extends Dimmable {
     }
 
     private void readColorTemperature() throws Exception {
-
-        colorTemperature = (int) adapter.communicator().readNumeric(colorTemperatureDP);
+        colorTemperature = (int) adapter.communicator().readNumeric(statusColorTemperatureDP);
     }
 
     private void writeColorTemperature(int colorTemperature) throws Exception {
-        adapter.communicator().write(colorTemperatureDP, String.valueOf(colorTemperature));
+        adapter.communicator().write(colorTemperatureValueDP, String.valueOf(colorTemperature));
     }
 
     @Override
@@ -145,4 +159,54 @@ public class Tunable extends Dimmable {
                 + "colorTemperature: " + colorTemperature;
     }
 
+    @Override
+    public CompletableFuture<Integer> getColorTemperature() {
+        return CompletableFuture.completedFuture(
+                kelvinToMirek(getColorTemperatureValue())
+        );
+    }
+
+    @Override
+    public CompletableFuture<Void> setColorTemperature(Integer value) throws Exception {
+        setColorTemperatureValue(
+                mirekToKelvin(value)
+        );
+
+        Logger.info("HomeKit set " + getNamedId() + " color temperature to " + colorTemperature);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public void subscribeColorTemperature(HomekitCharacteristicChangeCallback callback) {
+        colorTemperatureCallback = callback;
+    }
+
+    @Override
+    public void unsubscribeColorTemperature() {
+        colorTemperatureCallback = null;
+    }
+
+    @Override
+    public int getMinColorTemperature() {
+        return kelvinToMirek(COLOR_TEMPERATURE_MAX_KELVIN);
+    }
+
+    @Override
+    public int getMaxColorTemperature() {
+        return kelvinToMirek(COLOR_TEMPERATURE_MIN_KELVIN);
+    }
+
+    private static int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    private static int mirekToKelvin(int mirek) {
+        return 1000000 / mirek;
+    }
+
+    private static int kelvinToMirek(int kelvin) {
+        return 1000000 / kelvin;
+
+
+    }
 }

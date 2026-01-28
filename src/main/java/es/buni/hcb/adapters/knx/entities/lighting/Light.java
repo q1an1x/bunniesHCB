@@ -43,7 +43,14 @@ public class Light extends Switch implements LightbulbAccessory {
 
     @Override
     public CompletableFuture<Void> setLightbulbPowerState(boolean powerState) throws Exception {
-        if (powerState) on(); else off();
+        if (powerState) {
+            on();
+            Logger.info("HomeKit turned on " + getNamedId());
+        } else {
+            off();
+            Logger.info("HomeKit turned off " + getNamedId());
+        }
+
         return CompletableFuture.completedFuture(null);
     }
 
