@@ -1,6 +1,7 @@
 package es.buni.hcb.adapters.knx;
 
 import es.buni.hcb.adapters.Adapter;
+import es.buni.hcb.adapters.knx.entities.HealthMonitor;
 import es.buni.hcb.adapters.knx.entities.KNXEntity;
 import es.buni.hcb.config.KNXEntities;
 import es.buni.hcb.core.EntityRegistry;
@@ -54,7 +55,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
 
     private long currentBackoff = INITIAL_BACKOFF;
 
-
+    private HealthMonitor healthMonitor;
     private final Map<GroupAddress, Set<KNXEntity>> entitiesByGroupAddress = new ConcurrentHashMap<>();
 
     public KNXAdapter(EntityRegistry registry, NetworkContext networkContext) {
@@ -141,6 +142,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         });
 
         KNXEntities.registerAll(this);
+        healthMonitor = new HealthMonitor(this);
 
         pc = new ProcessCommunicatorImpl(link);
         pc.addProcessListener(new Listener());
@@ -162,6 +164,8 @@ public class KNXAdapter extends Adapter implements Reconnectable {
             link.close();
         }
 
+        healthMonitor.shutdown();
+        healthMonitor = null;
         entitiesByGroupAddress.clear();
         super.stop();
     }
@@ -190,6 +194,8 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         }
 
         private void handleEvent(ProcessEvent event) {
+            healthMonitor.receivedTelegram();
+
             GroupAddress address = event.getDestination();
 
             var entities = entitiesByGroupAddress.get(address);
