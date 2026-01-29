@@ -56,6 +56,8 @@ public abstract class Adapter {
                 Logger.error("Entity initialization failed: " + entity.getNamedId(), e);
             }
         }
+
+        Logger.info("Started adapter: " + name);
     }
 
     public void stop() throws Exception {
@@ -67,5 +69,7 @@ public abstract class Adapter {
                 Logger.error("Entity shutdown failed: " + entity.getNamedId(), e);
             }
         }
+
+        Logger.info("Stopped adapter: " + name);
     }
 }

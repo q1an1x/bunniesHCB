@@ -1,8 +1,8 @@
 package es.buni.hcb.adapters.knx;
 
 import es.buni.hcb.adapters.Adapter;
-import es.buni.hcb.adapters.knx.entities.HealthMonitor;
 import es.buni.hcb.adapters.knx.entities.KNXEntity;
+import es.buni.hcb.adapters.knx.services.KNXTimeService;
 import es.buni.hcb.config.KNXEntities;
 import es.buni.hcb.core.EntityRegistry;
 import es.buni.hcb.core.NetworkContext;
@@ -56,6 +56,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
     private long currentBackoff = INITIAL_BACKOFF;
 
     private HealthMonitor healthMonitor;
+    private KNXTimeService timeService;
     private final Map<GroupAddress, Set<KNXEntity>> entitiesByGroupAddress = new ConcurrentHashMap<>();
 
     public KNXAdapter(EntityRegistry registry, NetworkContext networkContext) {
@@ -143,20 +144,22 @@ public class KNXAdapter extends Adapter implements Reconnectable {
 
         KNXEntities.registerAll(this);
         healthMonitor = new HealthMonitor(this);
+        timeService = new KNXTimeService(
+                this,
+                0, 6, 123,
+                0, 6, 124
+        );
+        timeService.start();
 
         pc = new ProcessCommunicatorImpl(link);
         pc.addProcessListener(new Listener());
 
-        super.start();
-
         state = ConnectionState.CONNECTED;
-        Logger.info("KNX adapter started");
+        super.start();
     }
 
     @Override
     public void stop() throws Exception {
-        Logger.info("Stopping KNX adapter");
-
         if (pc != null) {
             pc.detach();
         }
@@ -166,6 +169,8 @@ public class KNXAdapter extends Adapter implements Reconnectable {
 
         healthMonitor.shutdown();
         healthMonitor = null;
+        timeService.stop();
+        timeService = null;
         entitiesByGroupAddress.clear();
         super.stop();
     }

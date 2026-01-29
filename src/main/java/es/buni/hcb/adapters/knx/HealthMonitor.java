@@ -1,6 +1,5 @@
-package es.buni.hcb.adapters.knx.entities;
+package es.buni.hcb.adapters.knx;
 
-import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.utils.Logger;
 
 import java.util.concurrent.Executors;
