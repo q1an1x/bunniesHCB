@@ -28,7 +28,9 @@ public class BunniesHCB {
             }
         }
 
-        LoggingBootstrap.configure(Debug.ENABLED);
+        if (! Debug.ENABLED) {
+            LoggingBootstrap.configure(false);
+        }
 
         Logger.info("Starting bunniesHomeControlBus build " + Utils.BUILD_DATE);
 
