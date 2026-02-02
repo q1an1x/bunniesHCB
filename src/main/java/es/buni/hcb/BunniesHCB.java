@@ -1,6 +1,8 @@
 package es.buni.hcb;
 
+import es.buni.hcb.adapters.broadlink.BroadlinkAdapter;
 import es.buni.hcb.adapters.knx.KNXAdapter;
+import es.buni.hcb.config.BroadlinkOvenConfig;
 import es.buni.hcb.core.AdapterManager;
 import es.buni.hcb.core.EntityRegistry;
 import es.buni.hcb.core.NetworkContext;
@@ -54,6 +56,10 @@ public class BunniesHCB {
         ExternalInterfaceManager externalInterfaceManager = new ExternalInterfaceManager();
 
         adapterManager.register(new KNXAdapter(registry, networkContext));
+        BroadlinkAdapter adapter = new BroadlinkAdapter(registry);
+        adapterManager.register(adapter);
+
+        BroadlinkOvenConfig.registerOven(adapter);
 
         externalInterfaceManager.register(
                 new HomeKitInterface(

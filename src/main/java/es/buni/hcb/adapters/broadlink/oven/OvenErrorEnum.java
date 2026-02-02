@@ -1,0 +1,17 @@
+package es.buni.hcb.adapters.broadlink.oven;
+
+public enum OvenErrorEnum {
+    NO_ERROR,
+    SENSOR_FAILURE_E1,
+    SENSOR_FAILURE_E2,
+    UNKNOWN_E3,
+    HEATING_FAILURE_E4,
+    UNKNOWN_E5,
+    SENSOR_FAILURE_E6,
+    INTERNAL_COMMUNICATION_ERROR_E7,
+    UNKNOWN_E8,
+    STEAM_GRILL_FAILURE_E9,
+    OVERHEATING_E10,
+    UNKNOWN_E11,
+    MACHINE_FAILURE_E12
+}

@@ -4,17 +4,20 @@ import es.buni.hcb.adapters.Adapter;
 import es.buni.hcb.core.events.EntityEvent;
 import es.buni.hcb.core.events.EventBus;
 import es.buni.hcb.core.events.StateChangedEvent;
+import es.buni.hcb.interfaces.homekit.ConfiguredNameStore;
 import es.buni.hcb.interfaces.homekit.HomeKitInterface;
 import es.buni.hcb.utils.Logger;
 import es.buni.hcb.utils.Utils;
 import io.github.hapjava.accessories.HomekitAccessory;
 import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback;
 
+import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 public abstract class Entity implements HomekitAccessory {
 
     private final String id;
+    private final String iId;
     private final String location;
 
     private final EntityRegistry registry;
@@ -22,7 +25,12 @@ public abstract class Entity implements HomekitAccessory {
     protected HomekitCharacteristicChangeCallback subscribeCallback;
 
     public Entity(Adapter adapter, String location, String id) {
-        this.registry = adapter.getRegistry();
+        this(adapter.getRegistry(), location, id);
+    }
+
+    public Entity(EntityRegistry registry, String location, String id) {
+        this.registry = registry;
+        this.iId = id;
         this.id = location + '.' + id;
         this.location = location;
     }
@@ -51,6 +59,10 @@ public abstract class Entity implements HomekitAccessory {
         return id;
     }
 
+    public String getIId() {
+        return iId;
+    }
+
     public String getLocation() {
         return location;
     }
@@ -69,6 +81,14 @@ public abstract class Entity implements HomekitAccessory {
     };
 
     public void shutdown() {
+    }
+
+    public String getStoredConfiguredName() {
+        return ConfiguredNameStore.getDefault().get(getNamedId());
+    }
+
+    public void setStoredConfiguredName(String name) throws IOException {
+        ConfiguredNameStore.getDefault().set(getNamedId(), name);
     }
 
     public boolean isHomeKitAccessory() {
