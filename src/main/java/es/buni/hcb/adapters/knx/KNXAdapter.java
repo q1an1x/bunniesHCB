@@ -142,6 +142,11 @@ public class KNXAdapter extends Adapter implements Reconnectable {
             }
         });
 
+        pc = new ProcessCommunicatorImpl(link);
+        pc.addProcessListener(new Listener());
+
+        state = ConnectionState.CONNECTED;
+
         KNXEntities.registerAll(this);
         healthMonitor = new HealthMonitor(this);
         timeService = new KNXTimeService(
@@ -151,10 +156,6 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         );
         timeService.start();
 
-        pc = new ProcessCommunicatorImpl(link);
-        pc.addProcessListener(new Listener());
-
-        state = ConnectionState.CONNECTED;
         super.start();
     }
 
@@ -167,10 +168,14 @@ public class KNXAdapter extends Adapter implements Reconnectable {
             link.close();
         }
 
-        healthMonitor.shutdown();
-        healthMonitor = null;
-        timeService.stop();
-        timeService = null;
+        if (healthMonitor != null) {
+            healthMonitor.shutdown();
+            healthMonitor = null;
+        }
+        if (timeService != null) {
+            timeService.stop();
+            timeService = null;
+        }
         entitiesByGroupAddress.clear();
         super.stop();
     }
