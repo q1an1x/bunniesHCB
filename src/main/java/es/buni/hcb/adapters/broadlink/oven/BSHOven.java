@@ -371,8 +371,6 @@ public class BSHOven extends Entity {
             sendCommand(
                     OvenCommandBuilder.create()
             );
-
-            sendCommand(OvenCommandBuilder.create());
         } catch (Exception e) {
             Logger.error("Failed to sync clock", e);
         }
