@@ -24,18 +24,27 @@ To use this adapter, you might have to connect the oven to your local network th
 import es.buni.hcb.adapters.broadlink.BroadlinkAdapter;
 import es.buni.hcb.adapters.broadlink.oven.BSHOven;
 import es.buni.hcb.adapters.broadlink.oven.OvenCommandBuilder;
+import es.buni.hcb.adapters.broadlink.oven.OvenMode;
 
 BroadlinkAdapter adapter = new BroadlinkAdapter(entityRegistry);
 BSHOven oven = new BSHOven(
-    adapter,
-    location, // "kitchen"
-    id, // "oven"
-    host, // oven ip address
-    macAddress // oven MAC address
+        adapter,
+        location, // "kitchen"
+        id, // "oven"
+        host, // oven ip address
+        macAddress // oven MAC address
 );
 
 adapter.start(); // initializes
-oven.activate(); // starts oven with default parameters
+oven.ready(); // wakes the oven
+oven.sendCommand(
+        OvenCommandBuilder
+                .create()
+                .setMode(OvenMode.CONVECTION_GRILL)
+                .setSteamAssist(true)
+                .setTemperature(230)
+                .setDuration(60 * 30)
+);
 ```
 
 #### Credits
