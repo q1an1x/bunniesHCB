@@ -14,6 +14,10 @@ To use this adapter, you might have to connect the oven to your local network th
     - Temperature control (Heater type)
     - Door open/close status (Contact Sensor type)
 
+#### Screenshots
+![oven-homekit-accessories.png](screenshots/oven-homekit-accessories.png)
+![oven-homekit.png](screenshots/oven-homekit.png)
+
 #### Example
 
 ```java
