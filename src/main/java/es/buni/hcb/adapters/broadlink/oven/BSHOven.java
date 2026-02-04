@@ -362,7 +362,6 @@ public class BSHOven extends Entity {
 
     private void syncClock() {
         try {
-            pollState();
             if (isActive(true)) {
                 Logger.info("Oven: skipping clock sync because the oven is active");
                 return;
