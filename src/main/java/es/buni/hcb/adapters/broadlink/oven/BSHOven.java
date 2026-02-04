@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 public class BSHOven extends Entity {
@@ -31,6 +32,9 @@ public class BSHOven extends Entity {
 
     private static final long POLL_INTERVAL_SECONDS = 5;
     private static final long MAX_BACKOFF_SECONDS = 3600;
+    private static final long PRE_SYNC_OFFSET_MS = 2_000;
+    private static final long SYNC_INTERVAL_MS = TimeUnit.HOURS.toMillis(8);
+    private final AtomicBoolean syncPending = new AtomicBoolean(false);
 
     private int consecutivePollFailures = 0;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
@@ -260,7 +264,7 @@ public class BSHOven extends Entity {
             pollState();
 
             scheduler.schedule(this::safePoll, 1, TimeUnit.SECONDS);
-            scheduler.scheduleAtFixedRate(this::syncClock, 0, 8, TimeUnit.HOURS);
+            scheduleNextSyncStep(true);
 
         } catch (IOException e) {
             Logger.error("Failed to init oven", e);
@@ -270,6 +274,31 @@ public class BSHOven extends Entity {
     @Override
     public void shutdown() {
         scheduler.shutdownNow();
+    }
+
+    private void triggerImmediateRepairSync() {
+        if (syncPending.compareAndSet(false, true)) {
+            scheduleNextSyncStep(true);
+        }
+    }
+
+    private void scheduleNextSyncStep() {
+        scheduleNextSyncStep(false);
+    }
+
+    private void scheduleNextSyncStep(boolean immediate) {
+        final long now = System.currentTimeMillis();
+
+        long baseTime = immediate ? now : (now + SYNC_INTERVAL_MS);
+        long remainderToMinute = 60000 - (baseTime % 60000);
+        final long executionTarget = baseTime + remainderToMinute;
+
+        final long delayUntilPoll = (executionTarget - PRE_SYNC_OFFSET_MS) - now;
+        scheduler.schedule(
+                () -> syncClock(executionTarget, immediate),
+                Math.max(delayUntilPoll, 0),
+                TimeUnit.MILLISECONDS
+        );
     }
 
     private void safePoll() {
@@ -357,21 +386,53 @@ public class BSHOven extends Entity {
     }
 
     private void sendCommand(OvenCommandBuilder builder) throws IOException {
+        rawSend(builder);
+
+        triggerImmediateRepairSync();
+    }
+
+    private void rawSend(OvenCommandBuilder builder) throws IOException {
         adapter.setDeviceState(host, port, mac, devType, builder.build());
     }
 
-    private void syncClock() {
+    private void syncClock(long targetExecutionTime, final boolean isRepairSync) {
         try {
+            if (isRepairSync) {
+                syncPending.set(false);
+            } else {
+                scheduleNextSyncStep();
+            }
+
             if (isActive(true)) {
+                if (isRepairSync) syncPending.set(false);
                 Logger.info("Oven: skipping clock sync because the oven is active");
                 return;
             }
 
-            sendCommand(
-                    OvenCommandBuilder.create()
-            );
+            long now = System.currentTimeMillis();
+            long delayToTarget = targetExecutionTime - now;
+
+            if (delayToTarget <= 0) {
+                if (isRepairSync) syncPending.set(false);
+                Logger.warn("Oven: Polling too slow. Repair aborted.");
+                return;
+            }
+
+            scheduler.schedule(() -> {
+                try {
+                    rawSend(OvenCommandBuilder.create());
+
+                    if (isRepairSync) syncPending.set(false);
+                    Logger.info("Oven: Clock synced at " + new java.util.Date());
+                } catch (Exception e) {
+                    if (isRepairSync) syncPending.set(false);
+                    Logger.error("Failed to sync clock", e);
+                }
+            }, delayToTarget, TimeUnit.MILLISECONDS);
+
         } catch (Exception e) {
-            Logger.error("Failed to sync clock", e);
+            if (isRepairSync) syncPending.set(false);
+            Logger.error("Failed during clock sync preparation", e);
         }
     }
 
