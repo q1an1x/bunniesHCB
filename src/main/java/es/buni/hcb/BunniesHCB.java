@@ -1,8 +1,10 @@
 package es.buni.hcb;
 
 import es.buni.hcb.adapters.broadlink.BroadlinkAdapter;
+import es.buni.hcb.adapters.homeassistant.HomeAssistantAdapter;
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.config.BroadlinkOvenConfig;
+import es.buni.hcb.config.HomeAssistantEntities;
 import es.buni.hcb.core.AdapterManager;
 import es.buni.hcb.core.EntityRegistry;
 import es.buni.hcb.core.NetworkContext;
@@ -34,73 +36,94 @@ public class BunniesHCB {
 
         Logger.info("Starting bunniesHomeControlBus build " + Utils.BUILD_DATE);
 
-        NetworkContext networkContext;
+        InetAddress localAddress = null;
+        String haHost = null;
+        String haToken = null;
+
         try {
-            InetAddress localAddress = null;
             for (int i = 0; i < args.length; i++) {
-                if ("--local-address".equals(args[i]) && i + 1 < args.length) {
-                    localAddress = InetAddress.getByName(args[i + 1]);
+                String arg = args[i];
+                String value = (i + 1 < args.length) ? args[i + 1] : null;
+
+                if ("--local-address".equals(arg) && value != null) {
+                    localAddress = InetAddress.getByName(value);
                     Logger.info("Using specified local address: " + localAddress.getHostAddress());
+                } else if ("--ha-host".equals(arg) && value != null) {
+                    haHost = value;
+                } else if ("--ha-token".equals(arg) && value != null) {
+                    haToken = value;
                 }
             }
+
             if (localAddress == null) {
                 localAddress = NetworkUtils.getFirstUsableIPv4();
                 Logger.info("Using detected local address: " + localAddress.getHostAddress());
             }
-            networkContext = new NetworkContext(localAddress);
-        } catch (Exception e) {
-            Logger.critical("Failed to determine local network address", e);
-            return;
-        }
 
-        EntityRegistry registry = new EntityRegistry();
-        AdapterManager adapterManager = new AdapterManager();
-        ExternalInterfaceManager externalInterfaceManager = new ExternalInterfaceManager();
+            NetworkContext networkContext = new NetworkContext(localAddress);
 
-        adapterManager.register(new KNXAdapter(registry, networkContext));
-        BroadlinkAdapter adapter = new BroadlinkAdapter(registry);
-        adapterManager.register(adapter);
+            EntityRegistry registry = new EntityRegistry();
+            AdapterManager adapterManager = new AdapterManager();
+            ExternalInterfaceManager externalInterfaceManager = new ExternalInterfaceManager();
 
-        BroadlinkOvenConfig.registerOven(adapter);
+            adapterManager.register(new KNXAdapter(registry, networkContext));
 
-        externalInterfaceManager.register(
-                new HomeKitInterface(
-                        registry,
-                        networkContext,
-                        new File("homekit-auth.bin"),
-                        HOMEKIT_BRIDGE_PORT
-                )
-        );
+            BroadlinkAdapter broadlinkAdapter = new BroadlinkAdapter(registry);
+            adapterManager.register(broadlinkAdapter);
+            BroadlinkOvenConfig.registerOven(broadlinkAdapter);
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            Logger.info("Shutdown signal received");
-            try {
-                externalInterfaceManager.stopAll();
-                adapterManager.shutdown();
-            } catch (Exception e) {
-                Logger.error("Error during adapter shutdown", e);
-            } finally {
-                shutdownLatch.countDown();
+            if (haHost != null && haToken != null) {
+                Logger.info("Initializing Home Assistant Adapter (" + haHost + ")");
+                HomeAssistantAdapter haAdapter = new HomeAssistantAdapter(registry, haHost, haToken);
+                adapterManager.register(haAdapter);
+
+                HomeAssistantEntities.registerAll(haAdapter);
+            } else {
+                Logger.warn("Skipping Home Assistant Adapter: --ha-host and --ha-token are required");
             }
-        }));
 
-        try {
-            adapterManager.startAll();
-            externalInterfaceManager.startAll();
+            externalInterfaceManager.register(
+                    new HomeKitInterface(
+                            registry,
+                            networkContext,
+                            new File("homekit-auth.bin"),
+                            HOMEKIT_BRIDGE_PORT
+                    )
+            );
+
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                Logger.info("Shutdown signal received");
+                try {
+                    externalInterfaceManager.stopAll();
+                    adapterManager.shutdown();
+                } catch (Exception e) {
+                    Logger.error("Error during adapter shutdown", e);
+                } finally {
+                    shutdownLatch.countDown();
+                }
+            }));
+
+            try {
+                adapterManager.startAll();
+                externalInterfaceManager.startAll();
+            } catch (Exception e) {
+                Logger.critical("Fatal startup error", e);
+                return;
+            }
+
+            Logger.info("Started bunniesHomeControlBus");
+
+            try {
+                shutdownLatch.await();
+            } catch (InterruptedException e) {
+                Logger.warn("Shutdown latch interrupted");
+                Thread.currentThread().interrupt();
+            }
+
+            Logger.info("bunniesHomeControlBus exiting");
+
         } catch (Exception e) {
-            Logger.critical("Fatal startup error", e);
-            return;
+            Logger.critical("Failed to initialize system", e);
         }
-
-        Logger.info("Started bunniesHomeControlBus");
-
-        try {
-            shutdownLatch.await();
-        } catch (InterruptedException e) {
-            Logger.warn("Shutdown latch interrupted");
-            Thread.currentThread().interrupt();
-        }
-
-        Logger.info("bunniesHomeControlBus exiting");
     }
 }
