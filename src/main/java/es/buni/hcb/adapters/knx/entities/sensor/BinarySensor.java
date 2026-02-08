@@ -41,12 +41,10 @@ public class BinarySensor extends KNXEntity {
 
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
-        if (address.equals(stateAddress)) {
-            boolean newState = invert != ProcessListener.asBool(event);
-            if (newState != state) {
-                state = newState;
-                return true;
-            }
+        boolean newState = invert != ProcessListener.asBool(event);
+        if (newState != state) {
+            state = newState;
+            return true;
         }
 
         return false;
