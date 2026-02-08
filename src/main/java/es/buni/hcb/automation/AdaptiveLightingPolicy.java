@@ -49,7 +49,7 @@ public class AdaptiveLightingPolicy implements LightingPolicy {
         addKeyframe(7,  0,  K_MIN);
 
         // Waking Up
-        addKeyframe(9,  0,  4500);
+        addKeyframe(9,  0,  4000);
 
         // Rise
         addKeyframe(11,  0,  5500);
@@ -57,6 +57,9 @@ public class AdaptiveLightingPolicy implements LightingPolicy {
 
         // Sustained Daylight
         addKeyframe(16, 0,  K_MAX);
+
+        addKeyframe(17,  0, 5000);
+        addKeyframe(19,  0,  3500);
 
         // Bedtime Prep
         addKeyframe(21, 0,  K_MIN);
