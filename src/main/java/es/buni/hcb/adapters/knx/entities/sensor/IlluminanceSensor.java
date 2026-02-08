@@ -14,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 
 public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory {
     private final GroupAddress illuminanceValueGroupAddress;
+    private final double calibrationFactor;
 
     private double illuminance;
 
@@ -36,11 +37,24 @@ public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory
             KNXAdapter adapter, String location, String id,
             int illuminanceValueMainGroup, int illuminanceValueMiddleGroup, int illuminanceValueSubGroup
     ) {
+        this(adapter, location, id,
+                illuminanceValueMainGroup, illuminanceValueMiddleGroup, illuminanceValueSubGroup,
+                1.0
+        );
+    }
+
+    public IlluminanceSensor(
+            KNXAdapter adapter, String location, String id,
+            int illuminanceValueMainGroup, int illuminanceValueMiddleGroup, int illuminanceValueSubGroup,
+            double calibrationFactor
+    ) {
         super(adapter, location, id);
 
         this.illuminanceValueGroupAddress = new GroupAddress(
                 illuminanceValueMainGroup, illuminanceValueMiddleGroup, illuminanceValueSubGroup
         );
+
+        this.calibrationFactor = calibrationFactor;
     }
 
     private void writeIlluminanceValue(double illuminance) throws Exception {
@@ -49,14 +63,25 @@ public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory
     }
 
     private void readIlluminanceValue() throws Exception {
-        illuminance = adapter.communicator().readFloat(illuminanceValueGroupAddress);
+        double rawIlluminance = adapter.communicator().readFloat(illuminanceValueGroupAddress);
+        illuminance = rawIlluminance * calibrationFactor;
     }
 
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
-        double newIlluminance = ProcessListener.asFloat(event);
-        if (illuminance != newIlluminance) {
-            this.illuminance = newIlluminance;
+        double rawIlluminance = ProcessListener.asFloat(event);
+        double calibratedIlluminance = rawIlluminance * calibrationFactor;
+
+        if (illuminance != calibratedIlluminance) {
+            this.illuminance = calibratedIlluminance;
+
+            Logger.info(
+                    "Sensor " + getNamedId()
+                            + " raw lux=" + rawIlluminance
+                            + ", factor=" + calibrationFactor
+                            + ", calibrated lux=" + calibratedIlluminance
+            );
+
             return true;
         }
         return false;
