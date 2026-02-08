@@ -59,6 +59,10 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
 
     @Override
     protected void onStateUpdated(GroupAddress addr, ProcessEvent event) {
+        onToggleStateChanged();
+    }
+
+    private void onToggleStateChanged() {
         Logger.info("Toggle " + getNamedId() + " set to " + isOn);
 
         if (subscribeCallback != null) {
@@ -67,6 +71,8 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
         if (onToggleListener != null) {
             onToggleListener.run();
         }
+
+        publishStateChanged(isOn);
     }
 
     @Override
@@ -83,6 +89,8 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
             if (onToggleListener != null) {
                 onToggleListener.run();
             }
+
+            onToggleStateChanged();
         }
         return CompletableFuture.completedFuture(null);
     }
