@@ -30,6 +30,8 @@ public class BSHOven extends Entity {
     private final byte[] mac;
     private final int devType;
 
+    private final boolean enableHomeKit;
+
     private static final long POLL_INTERVAL_SECONDS = 5;
     private static final long MAX_BACKOFF_SECONDS = 3600;
     private static final long PRE_SYNC_OFFSET_MS = 2_000;
@@ -229,7 +231,8 @@ public class BSHOven extends Entity {
             String location,
             String id,
             String host,
-            String mac
+            String mac,
+            boolean enableHomeKit
     ) {
         String[] parts = mac.split(":");
         byte[] bytes = new byte[parts.length];
@@ -237,7 +240,7 @@ public class BSHOven extends Entity {
             bytes[i] = (byte) Integer.parseInt(parts[i], 16);
         }
 
-        this(adapter, location, id, host, DEFAULT_PORT, bytes);
+        this(adapter, location, id, host, DEFAULT_PORT, bytes, enableHomeKit);
     }
 
     public BSHOven(
@@ -246,7 +249,8 @@ public class BSHOven extends Entity {
             String id,
             String host,
             int port,
-            byte[] mac
+            byte[] mac,
+            boolean enableHomeKit
     ) {
         super(adapter, location, id);
         this.adapter = adapter;
@@ -254,6 +258,7 @@ public class BSHOven extends Entity {
         this.port = port;
         this.mac = mac;
         this.devType = SIEMENS_OVEN_DEV_TYPE;
+        this.enableHomeKit = enableHomeKit;
     }
 
     @Override
@@ -442,14 +447,18 @@ public class BSHOven extends Entity {
 
     @Override
     public Collection<Service> getServices() {
-        ValveService valveService = new ValveService(homeKitTimer);
-        valveService.addLinkedService(new HeaterCoolerService(homeKitTemperature));
+        if (enableHomeKit) {
+            ValveService valveService = new ValveService(homeKitTimer);
+            valveService.addLinkedService(new HeaterCoolerService(homeKitTemperature));
 
-        return Stream.<Collection<Service>>of(
-                super.getServices(),
-                homeKitMenu.getServices(),
-                homeKitDoor.getServices(),
-                Collections.singleton(valveService)
-        ).flatMap(Collection::stream).toList();
+            return Stream.<Collection<Service>>of(
+                    super.getServices(),
+                    homeKitMenu.getServices(),
+                    homeKitDoor.getServices(),
+                    Collections.singleton(valveService)
+            ).flatMap(Collection::stream).toList();
+        } else {
+            return super.getServices();
+        }
     }
 }

@@ -23,10 +23,13 @@ public class BunniesHCB {
     private static final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     public static void main(String[] args) {
+        boolean enableOvenHomeKit = false;
         for (String arg : args) {
             if ("--debug".equals(arg)) {
                 Debug.ENABLED = true;
                 break;
+            } else if ("--oven-homekit".equals(arg)) {
+                enableOvenHomeKit = true;
             }
         }
 
@@ -70,7 +73,7 @@ public class BunniesHCB {
 
             BroadlinkAdapter broadlinkAdapter = new BroadlinkAdapter(registry);
             adapterManager.register(broadlinkAdapter);
-            BroadlinkOvenConfig.registerOven(broadlinkAdapter);
+            BroadlinkOvenConfig.registerOven(broadlinkAdapter, enableOvenHomeKit);
 
             if (haHost != null && haToken != null) {
                 Logger.info("Initializing Home Assistant Adapter (" + haHost + ")");
