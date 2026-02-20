@@ -16,6 +16,8 @@ import es.buni.hcb.automation.NightLightingPolicy;
 import es.buni.hcb.config.knx.*;
 import io.calimero.GroupAddress;
 
+import java.util.Set;
+
 public class KNXEntities {
     public final static GroupAddress SCENE_RECALL_GROUP_ADDRESS = new GroupAddress(0, 0, 2);
 
@@ -295,7 +297,11 @@ public class KNXEntities {
         adapter.register(new DelayedOffButton(
                 adapter, "bedroom.north", "delayedoff",
                 3, 0, 5,
-                new GroupAddress(3, 0, 31)
+                Set.of(
+                        new GroupAddress(3, 0, 31),
+                        new GroupAddress(3, 0, 1),
+                        new GroupAddress(3, 0, 3)
+                )
         ));
 
 
@@ -382,7 +388,11 @@ public class KNXEntities {
         adapter.register(new DelayedOffButton(
                 adapter, "bedroom.south", "delayedoff",
                 4, 0, 5,
-                new GroupAddress(4, 0, 31)
+                Set.of(
+                        new GroupAddress(4, 0, 31),
+                        new GroupAddress(4, 0, 1),
+                        new GroupAddress(4, 0, 3)
+                )
         ));
 
         adapter.register(new TVPowerButton(adapter));
