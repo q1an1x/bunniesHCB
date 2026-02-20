@@ -108,6 +108,11 @@ public class ConstantLightingPolicy implements LightingPolicy, Consumer<EntityEv
     }
 
     private void handleOccupancyAndLighting() throws Exception {
+        if (nightModeToggle.isOn()) {
+            lastSentBrightness.set(-1);
+            return;
+        }
+
         if (occSensor.getState()) {
             lastMotionTime = Instant.now();
             isStandbyActive = false;
@@ -129,11 +134,6 @@ public class ConstantLightingPolicy implements LightingPolicy, Consumer<EntityEv
                 writeBrightness(STANDBY_DIM_LEVEL);
                 isStandbyActive = true;
             }
-            return;
-        }
-
-        if (nightModeToggle.isOn()) {
-            lastSentBrightness.set(-1);
             return;
         }
 
