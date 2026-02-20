@@ -1,7 +1,6 @@
 package es.buni.hcb.config;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
-import es.buni.hcb.adapters.knx.entities.SceneController;
 import es.buni.hcb.adapters.knx.entities.Toggle;
 import es.buni.hcb.config.knx.AutomationType;
 import es.buni.hcb.config.knx.ScenesEnum;
@@ -16,12 +15,11 @@ import java.util.function.Consumer;
 
 public class SceneAutomationManager implements Consumer<EntityEvent> {
 
-    private static final long SUSPENSION_TIME_HOURS = 8; // How long to disable automation for
+    private static final long SUSPENSION_TIME_HOURS = 8;
 
     private final KNXAdapter adapter;
     private final EventBus eventBus;
 
-    // Tracks active timers so we can cancel them if a scene is changed again
     private final Map<String, ScheduledFuture<?>> suspensionTimers = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
@@ -45,14 +43,7 @@ public class SceneAutomationManager implements Consumer<EntityEvent> {
     private void handleSceneRecall(int sceneNumber) {
         ScenesEnum scene = ScenesEnum.fromNumber(sceneNumber);
 
-        if (scene == null) {
-            // Unknown scene, ignore
-            return;
-        }
-
-        if (scene.getDisabledAutomations().isEmpty()) {
-            // This scene allows full automation (e.g. "Auto Mode").
-            // Optionally: You could explicitly FORCE toggles ON here.
+        if (scene == null || scene.getDisabledAutomations().isEmpty()) {
             return;
         }
 
@@ -65,33 +56,30 @@ public class SceneAutomationManager implements Consumer<EntityEvent> {
     }
 
     private void suspendAutomation(String location, AutomationType type) {
-        // Construct the Registry Key: e.g., "livingroom.toggle.constantlighting"
         String registryKey = location + ".toggle." + type.getKeySuffix();
 
-        // 1. Fetch the Toggle
-        // Assuming your adapter.getRegistry() returns a generic map-like object or has a lookup
         Object entity = adapter.getRegistry().get(registryKey);
-
         if (entity instanceof Toggle toggle) {
-
-            // 2. Disable the Automation
-            if (toggle.isOn()) {
-                try {
-                    toggle.setSwitchState(false); // Turn off the policy
-                    Logger.info("[Manager] Disabled " + registryKey);
-                } catch (Exception e) {
-                    Logger.error("[Manager] Error disabling " + registryKey, e);
-                }
+            if (! toggle.isOn()) {
+                return;
             }
 
-            // 3. Schedule Re-enable (Auto-Recovery)
-            // If there's already a timer running for this specific toggle, cancel it first (extend time)
+            try {
+                toggle.setSwitchState(false);
+                Logger.info("[Manager] Disabled " + registryKey);
+            } catch (Exception e) {
+                Logger.error("[Manager] Error disabling " + registryKey, e);
+            }
+
+            if (type == AutomationType.NIGHT) {
+                return;
+            }
+
             ScheduledFuture<?> existingTask = suspensionTimers.get(registryKey);
             if (existingTask != null && !existingTask.isDone()) {
                 existingTask.cancel(false);
             }
 
-            // Schedule the wake-up call
             ScheduledFuture<?> task = scheduler.schedule(() -> {
                 try {
                     Logger.info("[Manager] Timeout expired. Re-enabling " + registryKey);
