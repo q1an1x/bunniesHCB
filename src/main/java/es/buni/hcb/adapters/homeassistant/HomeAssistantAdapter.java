@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import es.buni.hcb.adapters.Adapter;
 import es.buni.hcb.adapters.homeassistant.entities.HomeAssistantEntity;
 import es.buni.hcb.core.EntityRegistry;
+import es.buni.hcb.utils.Debug;
 import es.buni.hcb.utils.Logger;
 
 import java.net.URI;
@@ -55,6 +56,13 @@ public class HomeAssistantAdapter extends Adapter {
     public void register(HomeAssistantEntity entity) {
         super.register(entity);
         entitiesByHaId.put(entity.getHomeAssistantEntityId(), entity);
+    }
+
+    public void register(HomeAssistantEntity entity, String... haEntityIds) {
+        super.register(entity);
+        for (String id : haEntityIds) {
+            entitiesByHaId.put(id, entity);
+        }
     }
 
     @Override
@@ -219,6 +227,10 @@ public class HomeAssistantAdapter extends Adapter {
         }
 
         private void handleEvent(JsonObject event) {
+            if (Debug.ENABLED) {
+                Logger.info("Home Assistant Event Received: " + event.toString());
+            }
+
             if ("state_changed".equals(event.get("event_type").getAsString())) {
                 JsonObject data = event.get("data").getAsJsonObject();
                 String entityId = data.get("entity_id").getAsString();
