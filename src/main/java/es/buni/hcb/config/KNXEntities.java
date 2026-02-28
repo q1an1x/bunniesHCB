@@ -242,8 +242,7 @@ public class KNXEntities {
         ));
         IlluminanceSensor bedroomNorthIlluminanceSensor = new IlluminanceSensor(
                 adapter, "bedroom.north", "sensor.illuminance",
-                3, 1, 3,
-                20
+                3, 1, 3
         );
         adapter.register(bedroomNorthIlluminanceSensor);
 
@@ -314,7 +313,7 @@ public class KNXEntities {
                 new GroupAddress(3, 0 , 21),
                 new GroupAddress(3, 0, 31),
                 bedroomNorthMainLight,
-                100,
+                200,
                 1
         )).start();
         (new NightLightingPolicy(
@@ -407,7 +406,7 @@ public class KNXEntities {
                 new GroupAddress(4, 0 , 21),
                 new GroupAddress(4, 0, 31),
                 bedroomSouthMainLight,
-                100,
+                200,
                 1
         )).start();
         (new NightLightingPolicy(
