@@ -21,6 +21,8 @@ public class AdaptiveLightingPolicy implements LightingPolicy {
     private static final int K_MIN = Tunable.COLOR_TEMPERATURE_MIN_KELVIN;
     private static final int K_MAX = Tunable.COLOR_TEMPERATURE_MAX_KELVIN;
 
+    private static final int K_THRESHOLD = 50;
+
     private final String name;
     private final KNXAdapter adapter;
     private final Toggle enabledToggle;
@@ -70,7 +72,7 @@ public class AdaptiveLightingPolicy implements LightingPolicy {
 
     @Override
     public void start() {
-        scheduler.scheduleAtFixedRate(this::update, 0, 5, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::update, 0, 30, TimeUnit.SECONDS);
         enabledToggle.setOnToggleListener(this::update);
     }
 
@@ -85,7 +87,7 @@ public class AdaptiveLightingPolicy implements LightingPolicy {
             LocalTime now = LocalTime.now();
             int targetK = calculateKelvin(now);
 
-            if (targetK != lastSentKelvin) {
+            if (lastSentKelvin == -1 || Math.abs(targetK - lastSentKelvin) >= K_THRESHOLD) {
                 if(targetK > K_MAX) targetK = K_MAX;
                 if(targetK < K_MIN) targetK = K_MIN;
 
