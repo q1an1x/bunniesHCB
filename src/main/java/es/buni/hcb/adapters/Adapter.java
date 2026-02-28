@@ -53,7 +53,7 @@ public abstract class Adapter {
             try {
                 entity.initialize();
             } catch (Exception e) {
-                Logger.error("Entity initialization failed: " + entity.getNamedId(), e);
+                Logger.critical("Entity initialization failed: " + entity.getNamedId(), e);
             }
         }
 
