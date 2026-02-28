@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 public class KNXAdapter extends Adapter implements Reconnectable {
 
-    private static final String KNX_GATEWAY_HOST = "knx-interface.lan.buni.es";
+    private static final String KNX_GATEWAY_HOST = "knxd.lan.buni.es";
     private static final int KNX_GATEWAY_PORT = KNXnetIPConnection.DEFAULT_PORT;
 
     protected final NetworkContext networkContext;
