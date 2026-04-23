@@ -3,6 +3,7 @@ package es.buni.hcb.adapters;
 import es.buni.hcb.core.Entity;
 import es.buni.hcb.core.EntityRegistry;
 import es.buni.hcb.utils.Logger;
+import io.calimero.KNXTimeoutException;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -53,7 +54,11 @@ public abstract class Adapter {
             try {
                 entity.initialize();
             } catch (Exception e) {
-                Logger.critical("Entity initialization failed: " + entity.getNamedId(), e);
+                if (e instanceof KNXTimeoutException) {
+                    Logger.warn("Timeout while reading knx entity: " + entity.getNamedId());
+                } else {
+                    Logger.critical("Entity initialization failed: " + entity.getNamedId(), e);
+                }
             }
         }
 
