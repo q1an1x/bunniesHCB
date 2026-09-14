@@ -1,252 +1,218 @@
 package es.buni.hcb.adapters.homeassistant;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.gson.*;
 import es.buni.hcb.adapters.Adapter;
 import es.buni.hcb.adapters.homeassistant.entities.HomeAssistantEntity;
+import es.buni.hcb.core.Entity;
 import es.buni.hcb.core.EntityRegistry;
-import es.buni.hcb.utils.Debug;
 import es.buni.hcb.utils.Logger;
-
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.WebSocket;
+import java.net.http.*;
 import java.time.Duration;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/** Optional integration: authentication/connection failures cannot terminate KNX control. */
 public class HomeAssistantAdapter extends Adapter {
-
-    private static final String HA_WEBSOCKET_PATH = "/api/websocket";
-
-    private final String url;
-    private final String accessToken;
-    private final Gson gson;
-    private final AtomicInteger messageIdCounter = new AtomicInteger(1);
-
-    private final HttpClient httpClient;
-
+    private final URI uri;
+    private final String token;
+    private final HttpClient client;
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().daemon().name("ha-manager").factory());
     private final Map<String, HomeAssistantEntity> entitiesByHaId = new ConcurrentHashMap<>();
+    private final Map<Integer, Pending> pending = new ConcurrentHashMap<>();
+    private final AtomicInteger ids = new AtomicInteger();
+    private final Gson gson = new Gson();
+    private volatile WebSocket socket;
+    private volatile boolean stopping, authenticated, authRejected;
+    private long generation;
+    private ScheduledFuture<?> retry;
+    private CompletableFuture<WebSocket> connecting;
+    private CompletableFuture<Void> outbound = CompletableFuture.completedFuture(null);
+    private final Set<String> updatesDuringSnapshot = new HashSet<>();
+    private boolean awaitingSnapshot;
+    private record Pending(String kind, CompletableFuture<JsonObject> result, ScheduledFuture<?> timeout) { }
 
-    private volatile WebSocket webSocket;
-
-    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "HA-Manager");
-        t.setDaemon(true);
-        return t;
-    });
-
-    private volatile boolean isStopping = false;
-
-    public HomeAssistantAdapter(EntityRegistry registry, String host, String accessToken) {
+    public HomeAssistantAdapter(EntityRegistry registry, String host, String token) {
         super("homeassistant", registry);
-        String baseUrl = host.contains("://") ? host : "ws://" + host;
-        this.url = baseUrl + HA_WEBSOCKET_PATH;
-        this.accessToken = accessToken;
-        this.gson = new Gson();
-
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
+        uri = websocketUri(host);
+        if (token == null || token.isBlank()) throw new IllegalArgumentException("HA token required");
+        this.token = token;
+        client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     }
-
-    public void register(HomeAssistantEntity entity) {
+    static URI websocketUri(String host) {
+        String value = host.contains("://") ? host : "ws://" + host;
+        URI parsed = URI.create(value);
+        String scheme = switch (parsed.getScheme().toLowerCase(Locale.ROOT)) {
+            case "http", "ws" -> "ws"; case "https", "wss" -> "wss";
+            default -> throw new IllegalArgumentException("HA URL must use HTTP(S) or WS(S)");
+        };
+        if (parsed.getHost() == null || parsed.getUserInfo() != null || parsed.getQuery() != null || parsed.getFragment() != null)
+            throw new IllegalArgumentException("Invalid HA URL");
+        String path = parsed.getPath();
+        if (path == null || path.isEmpty() || path.equals("/")) path = "/api/websocket";
+        else if (!path.equals("/api/websocket")) throw new IllegalArgumentException("HA URL must be a host or /api/websocket");
+        try { return new URI(scheme, null, parsed.getHost(), parsed.getPort(), path, null, null); }
+        catch (java.net.URISyntaxException e) { throw new IllegalArgumentException("Invalid HA URL"); }
+    }
+    public void register(HomeAssistantEntity entity) { register(entity, entity.getHomeAssistantEntityId()); }
+    public void register(HomeAssistantEntity entity, String... aliases) {
         super.register(entity);
         entitiesByHaId.put(entity.getHomeAssistantEntityId(), entity);
+        for (String id : aliases) entitiesByHaId.put(id, entity);
     }
-
-    public void register(HomeAssistantEntity entity, String... haEntityIds) {
-        super.register(entity);
-        for (String id : haEntityIds) {
-            entitiesByHaId.put(id, entity);
-        }
-    }
-
-    @Override
-    public void unregister(es.buni.hcb.core.Entity entity) {
-        if (entity instanceof HomeAssistantEntity) {
-            entitiesByHaId.remove(((HomeAssistantEntity) entity).getHomeAssistantEntityId());
-        }
+    @Override public void unregister(Entity entity) {
+        entitiesByHaId.values().removeIf(value -> value == entity);
         super.unregister(entity);
     }
-
-    @Override
-    public void start() throws Exception {
-        isStopping = false;
-        connect();
-        super.start();
+    @Override public void start() throws Exception { connect(); super.start(); }
+    @Override public synchronized void stop() throws Exception {
+        if (stopping) { super.stop(); return; }
+        stopping = true; authenticated = false; generation++;
+        if (retry != null) retry.cancel(false);
+        if (connecting != null) connecting.cancel(true);
+        if (socket != null) socket.abort(); socket = null;
+        failPending("HA stopped"); scheduler.shutdownNow(); client.shutdownNow(); super.stop();
     }
-
-    @Override
-    public void stop() throws Exception {
-        isStopping = true;
-
-        executor.execute(() -> {
-            if (webSocket != null) {
-                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Adapter stopping");
-            }
-        });
-
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-        }
-        super.stop();
-    }
-
-    private void connect() {
-        if (isStopping) return;
-
-        httpClient.newWebSocketBuilder()
-                .buildAsync(URI.create(url), new HAListener())
-                .thenAccept(ws -> {
-                    this.webSocket = ws;
-                    Logger.info("Connected to Home Assistant WebSocket: " + url);
-                })
-                .exceptionally(ex -> {
-                    Logger.error("Failed to connect to HA, retrying in 10s: " + ex.getCause());
-                    if (!isStopping) {
-                        executor.schedule(this::connect, 10, TimeUnit.SECONDS);
-                    }
-                    return null;
-                });
-    }
-
-    public void callService(String domain, String service, String targetEntityId, Map<String, Object> serviceData) {
-        executor.execute(() -> {
-            WebSocket ws = this.webSocket;
-            if (ws == null) {
-                Logger.warn("Dropped HA command (Disconnected): " + domain + "." + service);
-                return;
-            }
-
-            try {
-                JsonObject root = new JsonObject();
-                root.addProperty("id", messageIdCounter.getAndIncrement());
-                root.addProperty("type", "call_service");
-                root.addProperty("domain", domain);
-                root.addProperty("service", service);
-
-                JsonObject target = new JsonObject();
-                target.addProperty("entity_id", targetEntityId);
-                root.add("target", target);
-
-                if (serviceData != null && !serviceData.isEmpty()) {
-                    JsonElement dataElement = gson.toJsonTree(serviceData);
-                    root.add("service_data", dataElement);
-                }
-
-                sendJson(ws, root);
-            } catch (Exception e) {
-                Logger.error("Error sending HA command", e);
-            }
+    private synchronized void connect() {
+        if (stopping) return;
+        long epoch = ++generation;
+        connecting = client.newWebSocketBuilder().connectTimeout(Duration.ofSeconds(10))
+                .buildAsync(uri, listener(epoch));
+        connecting.whenComplete((ws, failure) -> {
+            if (failure != null) disconnected(epoch, true);
+            else if (stopping || epoch != generation) ws.abort();
         });
     }
-
-    private void sendJson(WebSocket ws, JsonObject json) {
-        if (ws == null) return;
-        ws.sendText(gson.toJson(json), true);
+    private synchronized void disconnected(long epoch, boolean reconnect) {
+        if (epoch != generation) return;
+        authenticated = false;
+        awaitingSnapshot = false; updatesDuringSnapshot.clear();
+        if (socket != null) socket.abort(); socket = null;
+        failPending("HA disconnected; command outcome may be unknown and will not be replayed");
+        entitiesByHaId.values().stream().distinct().forEach(HomeAssistantEntity::unavailable);
+        if (reconnect && !stopping && !authRejected && (retry == null || retry.isDone())) {
+            retry = scheduler.schedule(() -> { synchronized(this){retry = null;} connect(); },10,TimeUnit.SECONDS);
+        }
     }
-
-    private class HAListener implements WebSocket.Listener {
-        StringBuilder buffer = new StringBuilder();
-
-        @Override
-        public void onOpen(WebSocket webSocket) {
-            HomeAssistantAdapter.this.webSocket = webSocket;
-            WebSocket.Listener.super.onOpen(webSocket);
-        }
-
-        @Override
-        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-            buffer.append(data);
-            if (last) {
-                try {
-                    String fullMessage = buffer.toString();
-                    buffer = new StringBuilder();
-                    handleMessage(webSocket, fullMessage);
-                } catch (Exception e) {
-                    Logger.error("Error handling HA message", e);
-                }
+    private void failPending(String reason) {
+        for (Pending request : pending.values()) { request.timeout.cancel(false); request.result.completeExceptionally(new IllegalStateException(reason)); }
+        pending.clear();
+    }
+    private synchronized CompletableFuture<Void> send(WebSocket ws, JsonObject message) {
+        // java.net.http.WebSocket allows one outstanding text send at a time.
+        long epoch = generation;
+        outbound = outbound.thenCompose(ignored -> {
+            if (stopping || socket != ws || epoch != generation) return CompletableFuture.failedFuture(new IllegalStateException("Stale HA session"));
+            return ws.sendText(gson.toJson(message),true).thenApply(sent -> null);
+        });
+        outbound.whenComplete((value, failure) -> { if (failure != null) disconnected(epoch, true); });
+        return outbound;
+    }
+    private synchronized CompletableFuture<JsonObject> request(WebSocket ws, JsonObject message, String kind) {
+        if (pending.size() >= 128) return CompletableFuture.failedFuture(new IllegalStateException("HA request limit reached"));
+        int id = ids.incrementAndGet(); message.addProperty("id",id);
+        var result = new CompletableFuture<JsonObject>();
+        var timeout = scheduler.schedule(() -> {
+            var expired = pending.remove(id);
+            if (expired != null) expired.result.completeExceptionally(new TimeoutException("HA response timed out; request not replayed"));
+        },10,TimeUnit.SECONDS);
+        pending.put(id,new Pending(kind,result,timeout));
+        send(ws,message);
+        return result;
+    }
+    public synchronized CompletableFuture<Void> callService(String domain, String service, String entity, Map<String,Object> data) {
+        if (!authenticated || stopping || socket == null) return CompletableFuture.failedFuture(new IllegalStateException("HA is not authenticated"));
+        JsonObject request = new JsonObject(); request.addProperty("type","call_service");
+        request.addProperty("domain",domain); request.addProperty("service",service);
+        JsonObject target = new JsonObject(); target.addProperty("entity_id",entity); request.add("target",target);
+        if (data != null && !data.isEmpty()) request.add("service_data",gson.toJsonTree(data));
+        return request(socket,request,"service").thenApply(ignored -> null);
+    }
+    synchronized void handleMessage(WebSocket ws, JsonObject message) {
+        if (stopping || socket != ws) return;
+        switch (message.get("type").getAsString()) {
+            case "auth_required" -> {
+                var auth = new JsonObject(); auth.addProperty("type","auth"); auth.addProperty("access_token",token); send(ws,auth);
             }
-            return WebSocket.Listener.super.onText(webSocket, data, last);
-        }
-
-        @Override
-        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-            Logger.warn("HA Connection closed: " + reason);
-            HomeAssistantAdapter.this.webSocket = null;
-            if (!isStopping) {
-                executor.schedule(() -> connect(), 10, TimeUnit.SECONDS);
+            case "auth_ok" -> {
+                authenticated = true;
+                awaitingSnapshot = true; updatesDuringSnapshot.clear();
+                var subscribe = new JsonObject(); subscribe.addProperty("type","subscribe_events"); subscribe.addProperty("event_type","state_changed");
+                request(ws,subscribe,"subscribe").whenComplete((v,e) -> { if(e!=null) stateRequestFailed(ws, "subscription"); });
+                var snapshot = new JsonObject(); snapshot.addProperty("type","get_states");
+                request(ws,snapshot,"snapshot").whenComplete((v,e) -> { if(e!=null) stateRequestFailed(ws, "snapshot"); });
             }
-            return null;
-        }
-
-        @Override
-        public void onError(WebSocket webSocket, Throwable error) {
-            Logger.error("HA WebSocket error", error);
-        }
-
-        private void handleMessage(WebSocket ws, String text) {
-            JsonObject message = JsonParser.parseString(text).getAsJsonObject();
-            String type = message.get("type").getAsString();
-
-            switch (type) {
-                case "auth_required":
-                    JsonObject auth = new JsonObject();
-                    auth.addProperty("type", "auth");
-                    auth.addProperty("access_token", accessToken);
-                    sendJson(ws, auth);
-                    break;
-
-                case "auth_ok":
-                    Logger.info("Home Assistant Auth Successful");
-                    JsonObject sub = new JsonObject();
-                    sub.addProperty("id", messageIdCounter.getAndIncrement());
-                    sub.addProperty("type", "subscribe_events");
-                    sub.addProperty("event_type", "state_changed");
-                    sendJson(ws, sub);
-                    break;
-
-                case "event":
-                    handleEvent(message.get("event").getAsJsonObject());
-                    break;
-
-                case "auth_invalid":
-                    Logger.critical("Home Assistant Auth Failed. Adapter stopping.");
-                    isStopping = true;
-                    break;
+            case "auth_invalid" -> {
+                Logger.error("HA authentication rejected; KNX remains active");
+                authRejected = true;
+                disconnected(generation,false);
             }
-        }
-
-        private void handleEvent(JsonObject event) {
-            if (Debug.ENABLED) {
-                Logger.info("Home Assistant Event Received: " + event.toString());
-            }
-
-            if ("state_changed".equals(event.get("event_type").getAsString())) {
-                JsonObject data = event.get("data").getAsJsonObject();
-                String entityId = data.get("entity_id").getAsString();
-                JsonElement newStateElement = data.get("new_state");
-
-                if (newStateElement != null && !newStateElement.isJsonNull()) {
-                    HomeAssistantEntity entity = entitiesByHaId.get(entityId);
-                    if (entity != null) {
-                        try {
-                            entity.onStateChanged(newStateElement.getAsJsonObject());
-                        } catch (Exception e) {
-                            Logger.error("Error updating HA entity " + entityId, e);
-                        }
+            case "result" -> {
+                Pending request = pending.remove(message.get("id").getAsInt());
+                if(request == null) return; request.timeout.cancel(false);
+                if(!message.get("success").getAsBoolean()) { request.result.completeExceptionally(new IllegalStateException("HA rejected " + request.kind)); return; }
+                if(request.kind.equals("snapshot")) {
+                    for(var state : message.getAsJsonArray("result")) {
+                        JsonObject value = state.getAsJsonObject();
+                        if (!updatesDuringSnapshot.contains(value.get("entity_id").getAsString())) update(value);
                     }
+                    awaitingSnapshot = false; updatesDuringSnapshot.clear();
+                }
+                request.result.complete(message);
+            }
+            case "event" -> {
+                var event = message.getAsJsonObject("event");
+                if(!event.has("event_type") || !event.get("event_type").getAsString().equals("state_changed")) return;
+                var data = event.getAsJsonObject("data");
+                String id = data.get("entity_id").getAsString();
+                if (awaitingSnapshot && entitiesByHaId.containsKey(id)) updatesDuringSnapshot.add(id);
+                var state = data.get("new_state");
+                if(state != null && !state.isJsonNull()) update(state.getAsJsonObject());
+                else {
+                    var entity = entitiesByHaId.get(data.get("entity_id").getAsString());
+                    if(entity != null) entity.unavailable();
                 }
             }
+            default -> { }
         }
+    }
+    private synchronized void stateRequestFailed(WebSocket ws, String stage) {
+        if (socket != ws || stopping) return;
+        Logger.error("HA state " + stage + " failed; invalidating cached states");
+        disconnected(generation, true);
+    }
+    private void update(JsonObject state) {
+        if(!state.has("entity_id")) return;
+        var entity = entitiesByHaId.get(state.get("entity_id").getAsString());
+        if(entity != null) try { entity.onStateChanged(state); }
+        catch(RuntimeException e) { Logger.error("Invalid HA entity state for " + entity.getNamedId()); }
+    }
+    WebSocket.Listener listener(long epoch) { return new Listener(epoch); }
+    private final class Listener implements WebSocket.Listener {
+        private final long epoch;
+        private final StringBuilder buffer = new StringBuilder();
+        Listener(long epoch) { this.epoch = epoch; }
+        @Override public void onOpen(WebSocket ws) {
+            synchronized(HomeAssistantAdapter.this) {
+                if(stopping || epoch != generation) { ws.abort(); return; }
+                socket = ws; authenticated = false; outbound = CompletableFuture.completedFuture(null);
+            }
+            ws.request(1);
+        }
+        @Override public CompletionStage<?> onText(WebSocket ws, CharSequence text, boolean last) {
+            if(epoch != generation || stopping) return CompletableFuture.completedFuture(null);
+            if(buffer.length() + text.length() > 2_097_152) { disconnected(epoch,true); return CompletableFuture.completedFuture(null); }
+            buffer.append(text);
+            if(last) {
+                try { handleMessage(ws,JsonParser.parseString(buffer.toString()).getAsJsonObject()); }
+                catch(RuntimeException e) { Logger.error("Malformed HA message"); disconnected(epoch,true); }
+                finally { buffer.setLength(0); }
+            }
+            ws.request(1); return CompletableFuture.completedFuture(null);
+        }
+        @Override public CompletionStage<?> onClose(WebSocket ws,int code,String reason) { disconnected(epoch,true); return CompletableFuture.completedFuture(null); }
+        @Override public void onError(WebSocket ws,Throwable error) { disconnected(epoch,true); }
     }
 }

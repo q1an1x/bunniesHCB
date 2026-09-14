@@ -1,111 +1,61 @@
 package es.buni.hcb.adapters.knx.entities;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
-import es.buni.hcb.utils.Logger;
+import es.buni.hcb.adapters.knx.KnxBinding;
 import io.calimero.GroupAddress;
 import io.calimero.process.ProcessEvent;
 import io.calimero.process.ProcessListener;
-
+import java.util.List;
 import java.util.Set;
 
 public class Switch extends KNXEntity {
-
     protected final GroupAddress switchAddress;
     protected final GroupAddress statusSwitchAddress;
-
     private volatile boolean on;
 
-    @Override
-    public Set<GroupAddress> groupAddresses() {
-        return Set.of(
-                switchAddress,
-                statusSwitchAddress
-        );
+    @Override public Set<GroupAddress> groupAddresses() { return Set.of(switchAddress, statusSwitchAddress); }
+    @Override public List<KnxBinding> bindings() {
+        return List.of(binding("switch", switchAddress, "1.001", KnxBinding.Role.COMMAND),
+                binding("switchStatus", statusSwitchAddress, "1.001", KnxBinding.Role.STATUS));
     }
-
-    public boolean isOn() {
-        return on;
-    }
-
+    public boolean isOn() { return on; }
+    public boolean hasSwitchState() { return known(statusSwitchAddress); }
     public void toggle() throws Exception {
-        if (on) {
-            off();
-        } else {
-            on();
-        }
+        if (!hasSwitchState()) throw new IllegalStateException("Cannot toggle unknown state: " + getNamedId());
+        setSwitchState(!on);
     }
+    public void on() throws Exception { setSwitchState(true); }
+    public void off() throws Exception { setSwitchState(false); }
 
-    public void on() throws Exception {
-        setSwitchState(true);
+    public static Switch fromConvention(KNXAdapter adapter, String location, String id, int main, int middle, int sub) throws Exception {
+        return new Switch(adapter, location, id, main, middle, sub, main, middle, sub + 1);
     }
-
-    public void off() throws Exception {
-        setSwitchState(false);
-    }
-
-    public static Switch fromConvention(KNXAdapter adapter, String location, String id,
-                                        int switchMainGroup, int switchMiddleGroup, int switchSubGroup)
-    throws Exception {
-        return new Switch(adapter, location, id,
-                switchMainGroup, switchMiddleGroup, switchSubGroup,
-                switchMainGroup, switchMiddleGroup, switchSubGroup + 1);
-    }
-
-    public Switch(KNXAdapter adapter, String location, String id,
-                     int switchMainGroup, int switchMiddleGroup, int switchSubGroup,
-                     int statusSwitchMainGroup, int statusSwitchMiddleGroup, int statusSwitchSubGroup) {
+    public Switch(KNXAdapter adapter, String location, String id, int main, int middle, int sub,
+                  int statusMain, int statusMiddle, int statusSub) {
         super(adapter, location, id);
-
-        switchAddress = new GroupAddress(switchMainGroup, switchMiddleGroup, switchSubGroup);
-        statusSwitchAddress = new GroupAddress(statusSwitchMainGroup, statusSwitchMiddleGroup, statusSwitchSubGroup);
+        switchAddress = new GroupAddress(main, middle, sub);
+        statusSwitchAddress = new GroupAddress(statusMain, statusMiddle, statusSub);
     }
-
-    @Override
-    protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
-        if (address.equals(statusSwitchAddress) || address.equals(switchAddress)) {
-            boolean newState = ProcessListener.asBool(event);
-            if (newState != on) {
-                on = newState;
-                return true;
-            }
+    @Override protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
+        // A command and a link-layer acknowledgement are not actuator feedback.
+        if (!address.equals(statusSwitchAddress)) return false;
+        boolean value = ProcessListener.asBool(event);
+        boolean changed = !known(address) || value != on;
+        on = value;
+        observed(address);
+        return changed;
+    }
+    @Override protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
+        if (address.equals(statusSwitchAddress)) {
+            onSwitchStatusChanged(on);
+            publishBusState("switch", on, event);
         }
-
-        return false;
     }
-
-    @Override
-    protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
-        onSwitchStatusChanged(on);
-    }
-
-    protected void onSwitchStatusChanged(boolean newValue) {
-        Logger.info(getNamedId() + " turned " + (newValue ? "on" : "off"));
-        publishStateChanged("switch", on);
-    }
-
-    @Override
-    public void initialize() throws Exception {
-        this.readSwitch();
-
+    protected void onSwitchStatusChanged(boolean value) { }
+    @Override public void initialize() throws Exception {
+        on = adapter.bus().readBool(statusSwitchAddress);
+        observed(statusSwitchAddress);
         super.initialize();
     }
-
-    private void setSwitchState(boolean state) throws Exception {
-        on = state;
-        writeSwitch(state);
-    }
-
-    private void readSwitch() throws Exception {
-        on = adapter.communicator().readBool(statusSwitchAddress);
-    }
-
-    private void writeSwitch(boolean state) throws Exception {
-        adapter.communicator().write(switchAddress, state);
-    }
-
-    @Override
-    public String toString() {
-        return super.toString() + ", "
-                + "on: " + on;
-    }
+    private void setSwitchState(boolean state) throws Exception { adapter.bus().write(switchAddress, state); }
 }

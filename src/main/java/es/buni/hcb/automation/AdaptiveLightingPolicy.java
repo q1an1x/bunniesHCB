@@ -3,153 +3,53 @@ package es.buni.hcb.automation;
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.adapters.knx.entities.Toggle;
 import es.buni.hcb.adapters.knx.entities.lighting.Tunable;
-import es.buni.hcb.utils.Debug;
-import es.buni.hcb.utils.Logger;
+import es.buni.hcb.core.events.EntityEvent;
+import es.buni.hcb.core.events.StateChangedEvent;
 import io.calimero.GroupAddress;
 import io.calimero.datapoint.StateDP;
-
+import java.time.Duration;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
-public class AdaptiveLightingPolicy implements LightingPolicy {
+public final class AdaptiveLightingPolicy extends ManagedLightingPolicy {
+    private static final int MIN = Tunable.COLOR_TEMPERATURE_MIN_KELVIN;
+    private static final int MAX = Tunable.COLOR_TEMPERATURE_MAX_KELVIN;
+    private static final int[][] TIMELINE = {{0, MIN}, {7*3600, MIN}, {9*3600, 4000}, {11*3600, 5500},
+            {13*3600, MAX}, {16*3600, MAX}, {17*3600, 5000}, {19*3600, 3500}, {21*3600, MIN}, {24*3600, MIN}};
+    private final Toggle enabled;
+    private final StateDP target;
+    private int lastKelvin = -1;
+    private long lastGeneration = -1;
 
-    private static final int K_MIN = Tunable.COLOR_TEMPERATURE_MIN_KELVIN;
-    private static final int K_MAX = Tunable.COLOR_TEMPERATURE_MAX_KELVIN;
-
-    private static final int K_THRESHOLD = 50;
-
-    private final String name;
-    private final KNXAdapter adapter;
-    private final Toggle enabledToggle;
-    private final GroupAddress targetGroup;
-    private final StateDP targetDP;
-
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private final List<Keyframe> timeline = new ArrayList<>();
-
-    private int lastSentKelvin = -1;
-
-    public AdaptiveLightingPolicy(String name, KNXAdapter adapter, Toggle enabledToggle,
-    int mainGroup, int middleGroup, int subGroup) {
-        this.name = name;
-        this.adapter = adapter;
-        this.enabledToggle = enabledToggle;
-        this.targetGroup = new GroupAddress(mainGroup, middleGroup, subGroup);
-        this.targetDP = new StateDP(
-                targetGroup,
-                "Color Temperature",
-                7, "7.600"
-        );
-
-        // Deep Night
-        addKeyframe(0,  0,  K_MIN);
-        addKeyframe(7,  0,  K_MIN);
-
-        // Waking Up
-        addKeyframe(9,  0,  4000);
-
-        // Rise
-        addKeyframe(11,  0,  5500);
-        addKeyframe(13, 0,  K_MAX);
-
-        // Sustained Daylight
-        addKeyframe(16, 0,  K_MAX);
-
-        addKeyframe(17,  0, 5000);
-        addKeyframe(19,  0,  3500);
-
-        // Bedtime Prep
-        addKeyframe(21, 0,  K_MIN);
-
-        // Wrap around
-        addKeyframe(23, 59, K_MIN);
+    public AdaptiveLightingPolicy(String name, KNXAdapter adapter, Toggle enabled, int main, int middle, int sub) {
+        super(name, adapter, enabled.getLocation(), PolicyKind.ADAPTIVE_COLOR);
+        this.enabled = enabled;
+        var address = new GroupAddress(main, middle, sub);
+        target = new StateDP(address, "Color temperature", 7, "7.600");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "colorTemperature", address, "7.600");
     }
-
-    @Override
-    public void start() {
-        scheduler.scheduleAtFixedRate(this::update, 0, 30, TimeUnit.SECONDS);
-        enabledToggle.setOnToggleListener(this::update);
+    @Override protected Duration interval() { return Duration.ofSeconds(30); }
+    @Override protected void resumed() { lastKelvin = -1; }
+    @Override protected void handle(EntityEvent event) throws Exception {
+        if (event instanceof StateChangedEvent state && state.entityId().equals(enabled.getNamedId())) evaluate();
     }
-
-    @Override
-    public void update() {
-        if (!enabledToggle.isOn()) {
-            lastSentKelvin = -1;
-            return;
-        }
-
-        try {
-            LocalTime now = LocalTime.now();
-            int targetK = calculateKelvin(now);
-
-            if (lastSentKelvin == -1 || Math.abs(targetK - lastSentKelvin) >= K_THRESHOLD) {
-                if(targetK > K_MAX) targetK = K_MAX;
-                if(targetK < K_MIN) targetK = K_MIN;
-
-                if (Debug.ENABLED) {
-                    Logger.info(name + " adapted to " + targetK + " K");
-                }
-                adapter.communicator().write(targetDP, String.valueOf(targetK));
-
-                lastSentKelvin = targetK;
-            }
-
-        } catch (Exception e) {
-            Logger.error("[" + name + "] Error: " + e.getMessage());
+    @Override protected void evaluate() throws Exception {
+        if (!enabled.isOn()) { lastKelvin = -1; return; }
+        if (lastGeneration != adapter.generation()) { lastKelvin = -1; lastGeneration = adapter.generation(); }
+        int kelvin = calculateKelvin(LocalTime.now(adapter.clock()));
+        if (lastKelvin == -1 || Math.abs(kelvin - lastKelvin) >= 50) {
+            adapter.bus().write(target, Integer.toString(kelvin));
+            lastKelvin = kelvin;
         }
     }
-
-    private int calculateKelvin(LocalTime time) {
-        int currentSeconds = time.toSecondOfDay();
-
-        Keyframe prev = timeline.get(0);
-        Keyframe next = timeline.get(timeline.size() - 1);
-
-        for (int i = 0; i < timeline.size() - 1; i++) {
-            if (currentSeconds >= timeline.get(i).totalSeconds &&
-                    currentSeconds <= timeline.get(i+1).totalSeconds) {
-                prev = timeline.get(i);
-                next = timeline.get(i+1);
-                break;
+    static int calculateKelvin(LocalTime time) {
+        int second = time.toSecondOfDay();
+        for (int i = 1; i < TIMELINE.length; i++) {
+            if (second <= TIMELINE[i][0]) {
+                int[] previous = TIMELINE[i-1], next = TIMELINE[i];
+                double fraction = (second - previous[0]) / (double) (next[0] - previous[0]);
+                return (int) (previous[1] + (next[1] - previous[1]) * (1 - Math.cos(fraction * Math.PI)) / 2);
             }
         }
-
-        double totalRange = next.totalSeconds - prev.totalSeconds;
-        if (totalRange == 0) return prev.kelvin;
-
-        double elapsed = currentSeconds - prev.totalSeconds;
-        double linearProgress = elapsed / totalRange;
-
-        return (int) (prev.kelvin + (next.kelvin - prev.kelvin)
-                * (1 - Math.cos(linearProgress * Math.PI)) / 2);
-    }
-
-    private void addKeyframe(int hour, int minute, int kelvin) {
-        addKeyframe(hour, minute, 0, kelvin);
-    }
-
-    private void addKeyframe(int hour, int minute, int second, int kelvin) {
-        timeline.add(new Keyframe(hour, minute, second, kelvin));
-        Collections.sort(timeline);
-    }
-
-    private static class Keyframe implements Comparable<Keyframe> {
-        int totalSeconds;
-        int kelvin;
-
-        Keyframe(int hour, int minute, int second, int kelvin) {
-            this.totalSeconds = (hour * 3600) + (minute * 60) + second;
-            this.kelvin = kelvin;
-        }
-
-        @Override
-        public int compareTo(Keyframe o) {
-            return Integer.compare(this.totalSeconds, o.totalSeconds);
-        }
+        return MIN;
     }
 }

@@ -11,7 +11,7 @@ import java.util.Set;
 
 public class BinarySensor extends KNXEntity {
 
-    private final GroupAddress stateAddress;
+    protected final GroupAddress stateAddress;
     private volatile boolean state;
     private final boolean invert;
 
@@ -20,6 +20,11 @@ public class BinarySensor extends KNXEntity {
         return Set.of(
                 stateAddress
         );
+    }
+
+    @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        return java.util.List.of(binding("state", stateAddress, "1.002", es.buni.hcb.adapters.knx.KnxBinding.Role.SENSOR));
     }
 
     public boolean getState() {
@@ -42,22 +47,20 @@ public class BinarySensor extends KNXEntity {
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         boolean newState = invert != ProcessListener.asBool(event);
-        if (newState != state) {
-            state = newState;
-            return true;
-        }
-
-        return false;
+        boolean changed = !known(address) || newState != state;
+        state = newState;
+        observed(address);
+        return changed;
     }
 
     @Override
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
         onStateChanged(state);
+        publishBusState("state", state, event);
     }
 
     protected void onStateChanged(boolean newValue) {
         Logger.info("Sensor " + getNamedId() + " state changed to " + newValue);
-        publishStateChanged(state);
 
         if (subscribeCallback != null) {
             subscribeCallback.changed();
@@ -72,7 +75,8 @@ public class BinarySensor extends KNXEntity {
     }
 
     private void readState() throws Exception {
-        state = invert != adapter.communicator().readBool(stateAddress);
+        state = invert != adapter.bus().readBool(stateAddress);
+        observed(stateAddress);
     }
 
     @Override

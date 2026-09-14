@@ -1,6 +1,7 @@
 package es.buni.hcb.config.knx;
 
 public enum AutomationType {
+    AUTO("autolighting"),
     CONSTANT("constantlighting"),
     NIGHT("nightlighting"),
     ADAPTIVE("adaptivelighting");

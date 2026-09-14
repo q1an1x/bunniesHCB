@@ -1,7 +1,7 @@
 package es.buni.hcb.automation;
 
-public interface LightingPolicy {
-    void start();
+import es.buni.hcb.core.Lifecycle;
 
+public interface LightingPolicy extends Lifecycle {
     void update();
 }

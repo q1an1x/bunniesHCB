@@ -49,21 +49,23 @@ public class HomeKitInterface extends ExternalInterface {
                 Utils.BUILD_DATE
         );
 
-        for (Entity entity : registry.getAllEntities()) {
+        var ids = new java.util.HashSet<Integer>();
+        for (Entity entity : registry.getAllEntities().stream().sorted(java.util.Comparator.comparingInt(Entity::getId)).toList()) {
             if (entity.isHomeKitAccessory()) {
+                if (entity.getId() <= 1 || !ids.add(entity.getId())) throw new IllegalStateException("HomeKit accessory ID collision: " + entity.getNamedId());
                 Logger.info("HomeKit: Adding " + entity.getType() + " " + entity.getNamedId());
                 bridge.addAccessory(entity);
             }
         }
 
         bridge.start();
-        Logger.info("HomeKit Bridge started on " + local.getHostAddress() + ":" + port + ". Pin: " + authInfo.getPin());
+        Logger.info("HomeKit Bridge started on " + local.getHostAddress() + ":" + port);
     }
 
     @Override
     public void stop() throws Exception {
-        if (bridge != null) {
-            bridge.stop();
-        }
+        try { if (bridge != null) bridge.stop(); }
+        finally { if (server != null) server.stop(); }
+        bridge = null; server = null;
     }
 }

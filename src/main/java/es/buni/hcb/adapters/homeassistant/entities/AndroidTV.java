@@ -6,7 +6,7 @@ import es.buni.hcb.utils.Logger;
 
 public class AndroidTV extends HomeAssistantEntity {
 
-    private String state = "unknown";
+    private volatile String state = "unknown";
     private String currentApp = "unknown";
     private double volume = 0.0;
 
@@ -16,6 +16,8 @@ public class AndroidTV extends HomeAssistantEntity {
 
     @Override
     public void onStateChanged(JsonObject newState) {
+        // A remote.* alias is a command target, not the media player's power state.
+        if (newState.has("entity_id") && !newState.get("entity_id").getAsString().equals(getHomeAssistantEntityId())) return;
         String oldState = this.state;
 
         if (newState.has("state") && !newState.get("state").isJsonNull()) {
@@ -64,12 +66,14 @@ public class AndroidTV extends HomeAssistantEntity {
         callService("media_player", "media_play_pause");
     }
 
+    public boolean hasKnownState() { return !"unknown".equals(state) && !"unavailable".equals(state); }
+
     public boolean isPlaying() {
         return "playing".equalsIgnoreCase(state);
     }
 
     public boolean isOn() {
-        return !"off".equalsIgnoreCase(state) && !"unavailable".equalsIgnoreCase(state);
+        return hasKnownState() && !"off".equalsIgnoreCase(state);
     }
 
     public String getCurrentApp() {

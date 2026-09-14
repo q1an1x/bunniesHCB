@@ -16,7 +16,17 @@ public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory
     private final GroupAddress illuminanceValueGroupAddress;
     private final double calibrationFactor;
 
-    private double illuminance;
+    private volatile double illuminance;
+
+    @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        return java.util.List.of(binding("illuminance", illuminanceValueGroupAddress, "9.004", es.buni.hcb.adapters.knx.KnxBinding.Role.SENSOR));
+    }
+
+    @Override public void initialize() throws Exception {
+        readIlluminanceValue();
+        super.initialize();
+    }
 
     public double getIlluminance() {
         return this.illuminance;
@@ -54,25 +64,29 @@ public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory
                 illuminanceValueMainGroup, illuminanceValueMiddleGroup, illuminanceValueSubGroup
         );
 
+        if (!Double.isFinite(calibrationFactor) || calibrationFactor <= 0)
+            throw new IllegalArgumentException("Calibration must be positive");
         this.calibrationFactor = calibrationFactor;
     }
 
     private void writeIlluminanceValue(double illuminance) throws Exception {
-        this.illuminance = illuminance;
-        adapter.communicator().write(illuminanceValueGroupAddress, illuminance, false);
+        throw new UnsupportedOperationException("Illuminance is a read-only sensor");
     }
 
     private void readIlluminanceValue() throws Exception {
-        double rawIlluminance = adapter.communicator().readFloat(illuminanceValueGroupAddress);
-        illuminance = rawIlluminance * calibrationFactor;
+        double rawIlluminance = adapter.bus().readFloat(illuminanceValueGroupAddress);
+        illuminance = validated(rawIlluminance * calibrationFactor);
+        observed(illuminanceValueGroupAddress);
     }
 
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         double rawIlluminance = ProcessListener.asFloat(event);
-        double calibratedIlluminance = rawIlluminance * calibrationFactor;
+        double calibratedIlluminance = validated(rawIlluminance * calibrationFactor);
+        boolean first = !known(address);
+        observed(address);
 
-        if (illuminance != calibratedIlluminance) {
+        if (first || illuminance != calibratedIlluminance) {
             this.illuminance = calibratedIlluminance;
 
             Logger.info(
@@ -90,15 +104,20 @@ public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory
     @Override
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
         onStateChanged(illuminance);
+        publishBusState("state", illuminance, event);
     }
 
     protected void onStateChanged(double newValue) {
         Logger.info("Sensor " + getNamedId() + " illuminance changed to " + newValue);
-        publishStateChanged(newValue);
 
         if (subscribeCallback != null) {
             subscribeCallback.changed();
         }
+    }
+
+    private static double validated(double lux) {
+        if (!Double.isFinite(lux) || lux < 0) throw new IllegalArgumentException("Invalid illuminance");
+        return lux;
     }
 
     @Override
@@ -109,7 +128,7 @@ public class IlluminanceSensor extends KNXEntity implements LightSensorAccessory
 
     @Override
     public CompletableFuture<Double> getCurrentAmbientLightLevel() {
-        return CompletableFuture.completedFuture(getIlluminance());
+        return stateFuture(illuminanceValueGroupAddress, Math.max(0.0001, Math.min(100000, getIlluminance())));
     }
 
     @Override

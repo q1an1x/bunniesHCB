@@ -14,7 +14,7 @@ public class OccupancySensor extends BinarySensor implements OccupancySensorAcce
 
     @Override
     public CompletableFuture<OccupancyDetectedEnum> getOccupancyDetected() {
-        return CompletableFuture.completedFuture(getState()
+        return stateFuture(stateAddress, getState()
                         ? OccupancyDetectedEnum.DETECTED
                         : OccupancyDetectedEnum.NOT_DETECTED
         );

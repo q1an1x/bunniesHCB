@@ -2,97 +2,90 @@ package es.buni.hcb.config;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.adapters.knx.entities.Toggle;
-import es.buni.hcb.config.knx.AutomationType;
-import es.buni.hcb.config.knx.ScenesEnum;
-import es.buni.hcb.core.events.EntityEvent;
-import es.buni.hcb.core.events.EventBus;
-import es.buni.hcb.core.events.SceneRecalledEvent;
+import es.buni.hcb.config.knx.*;
+import es.buni.hcb.core.Lifecycle;
+import es.buni.hcb.core.events.*;
 import es.buni.hcb.utils.Logger;
-
-import java.util.Map;
+import java.time.Duration;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 
-public class SceneAutomationManager implements Consumer<EntityEvent> {
-
-    private static final long SUSPENSION_TIME_HOURS = 8;
-
+public final class SceneAutomationManager implements Lifecycle, Consumer<EntityEvent> {
     private final KNXAdapter adapter;
-    private final EventBus eventBus;
+    private final Duration suspension;
+    private final Map<String, ScheduledFuture<?>> timers = new HashMap<>();
+    private final Map<String, Long> revisions = new HashMap<>();
+    private long nextRevision;
+    private long generation;
+    private boolean running;
 
-    private final Map<String, ScheduledFuture<?>> suspensionTimers = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
-    public SceneAutomationManager(KNXAdapter adapter) {
-        this.adapter = adapter;
-        this.eventBus = adapter.getRegistry().getEventBus();
+    public SceneAutomationManager(KNXAdapter adapter) { this(adapter, Duration.ofHours(8)); }
+    public SceneAutomationManager(KNXAdapter adapter, Duration suspension) {
+        this.adapter = adapter; this.suspension = suspension;
     }
-
-    public void start() {
-        eventBus.subscribe(this);
-        Logger.info("[Manager] Scene Automation Supervisor Online.");
+    @Override public synchronized void start() {
+        if (running) return;
+        running = true;
+        generation = adapter.generation();
+        adapter.getRegistry().getEventBus().subscribe(this);
     }
-
-    @Override
-    public void accept(EntityEvent event) {
-        if (event instanceof SceneRecalledEvent) {
-            handleSceneRecall(((SceneRecalledEvent) event).sceneId());
+    @Override public synchronized void stop() {
+        running = false;
+        adapter.getRegistry().getEventBus().unsubscribe(this);
+        timers.values().forEach(t -> t.cancel(false));
+        timers.clear();
+        revisions.clear();
+    }
+    @Override public synchronized void accept(EntityEvent event) {
+        if (!running || !adapter.isAutomationReady()) return;
+        if (generation != adapter.generation()) {
+            timers.values().forEach(t -> t.cancel(false)); timers.clear(); revisions.clear();
+            generation = adapter.generation();
+        }
+        if (event instanceof SceneRecalledEvent recall) {
+            ScenesEnum scene = ScenesEnum.fromNumber(recall.sceneId());
+            if (scene != null) for (AutomationType type : scene.getDisabledAutomations()) suspend(scene.getLocation(), type);
+        } else if (event instanceof StateChangedEvent state
+                && state.origin() != StateChangedEvent.Origin.AUTOMATION
+                && state.origin() != StateChangedEvent.Origin.BUS_RESPONSE
+                && state.origin() != StateChangedEvent.Origin.BUS_ECHO) {
+            // An explicit manual setting, including a repeated OFF, cancels automatic restoration.
+            cancel(state.entityId());
         }
     }
-
-    private void handleSceneRecall(int sceneNumber) {
-        ScenesEnum scene = ScenesEnum.fromNumber(sceneNumber);
-
-        if (scene == null || scene.getDisabledAutomations().isEmpty()) {
-            return;
-        }
-
-        Logger.info(String.format("[Manager] Scene '%s' recalled in %s. Suspending: %s",
-                scene.name(), scene.getLocation(), scene.getDisabledAutomations()));
-
-        for (AutomationType type : scene.getDisabledAutomations()) {
-            suspendAutomation(scene.getLocation(), type);
-        }
+    private void cancel(String key) {
+        revisions.remove(key);
+        var timer = timers.remove(key);
+        if (timer != null) timer.cancel(false);
     }
-
-    private void suspendAutomation(String location, AutomationType type) {
-        String registryKey = location + ".toggle." + type.getKeySuffix();
-
-        Object entity = adapter.getRegistry().get(registryKey);
-        if (entity instanceof Toggle toggle) {
-            if (! toggle.isOn()) {
-                return;
+    private void suspend(String location, AutomationType type) {
+        String key = location + ".toggle." + type.getKeySuffix();
+        if (!(adapter.getRegistry().get(key) instanceof Toggle toggle)) return;
+        if (!toggle.isOn() && !timers.containsKey(key)) return;
+        try {
+            if (toggle.isOn()) {
+                toggle.setAutomationState(false);
             }
-
-            try {
-                toggle.setSwitchState(false);
-                Logger.info("[Manager] Disabled " + registryKey);
-            } catch (Exception e) {
-                Logger.error("[Manager] Error disabling " + registryKey, e);
-            }
-
-            if (type == AutomationType.NIGHT) {
-                return;
-            }
-
-            ScheduledFuture<?> existingTask = suspensionTimers.get(registryKey);
-            if (existingTask != null && !existingTask.isDone()) {
-                existingTask.cancel(false);
-            }
-
-            ScheduledFuture<?> task = scheduler.schedule(() -> {
-                try {
-                    Logger.info("[Manager] Timeout expired. Re-enabling " + registryKey);
-                    toggle.setSwitchState(true);
-                    suspensionTimers.remove(registryKey);
-                } catch (Exception e) {
-                    Logger.error("[Manager] Exception while scheduling " + registryKey, e);
-                }
-            }, SUSPENSION_TIME_HOURS, TimeUnit.HOURS);
-
-            suspensionTimers.put(registryKey, task);
-        } else {
-            Logger.warn("[Manager] Could not find toggle in registry for key: " + registryKey);
-        }
+            cancel(key);
+            if (type == AutomationType.NIGHT) return;
+            long epoch = adapter.generation();
+            long intent = adapter.intentRevision();
+            long revision = ++nextRevision;
+            revisions.put(key, revision);
+            timers.put(key, adapter.scheduler().schedule(() -> adapter.getRegistry().getEventBus().execute(() -> restore(key, toggle, epoch, revision, intent)),
+                    suspension.toMillis(), TimeUnit.MILLISECONDS));
+        } catch (Exception e) { Logger.error("Unable to suspend " + key, e); }
+    }
+    private synchronized void restore(String key, Toggle toggle, long epoch, long revision, long intent) {
+        if (!Objects.equals(revisions.get(key), revision)) return;
+        revisions.remove(key);
+        timers.remove(key);
+        // Never replay an old timer into a new connection or overwrite unknown state.
+        if (!running || !adapter.isAutomationReady() || adapter.generation() != epoch
+                || adapter.intentRevision() != intent || !toggle.isStateKnown()) return;
+        try {
+            toggle.setAutomationState(true);
+        } catch (Exception e) { Logger.error("Unable to restore " + key, e); }
     }
 }

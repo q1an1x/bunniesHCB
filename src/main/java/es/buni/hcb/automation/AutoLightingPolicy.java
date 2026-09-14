@@ -3,87 +3,32 @@ package es.buni.hcb.automation;
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.adapters.knx.entities.Toggle;
 import es.buni.hcb.adapters.knx.entities.sensor.OccupancySensor;
-import es.buni.hcb.core.events.EntityEvent;
-import es.buni.hcb.core.events.EventBus;
-import es.buni.hcb.core.events.StateChangedEvent;
-import es.buni.hcb.utils.Logger;
+import es.buni.hcb.core.events.*;
 import io.calimero.GroupAddress;
 import io.calimero.process.ProcessCommunication;
 
-import java.time.Instant;
-import java.time.LocalTime;
-import java.util.function.Consumer;
+public final class AutoLightingPolicy extends ManagedLightingPolicy {
+    private final Toggle enabled, night;
+    private final OccupancySensor occupancy;
+    private final GroupAddress sceneGroup, offGroup;
+    private final int scene;
 
-public class AutoLightingPolicy implements LightingPolicy, Consumer<EntityEvent> {
-    private final String name;
-    private final KNXAdapter adapter;
-    private final EventBus eventBus;
-    private final Toggle enabledToggle;
-    private final OccupancySensor occSensor;
-
-    private final GroupAddress sceneGroup;
-    private final int sceneNumber;
-    private final GroupAddress allLightsGroup;
-
-    public AutoLightingPolicy(String name, KNXAdapter adapter, int sceneNumber,
-                              Toggle enabledToggle, OccupancySensor occSensor,
-                              GroupAddress sceneGroup, GroupAddress allLightsGroup) {
-        this.name = name;
-        this.adapter = adapter;
-        this.sceneNumber = sceneNumber;
-        this.eventBus = adapter.getRegistry().getEventBus();
-        this.enabledToggle = enabledToggle;
-        this.occSensor = occSensor;
-        this.sceneGroup = sceneGroup;
-        this.allLightsGroup = allLightsGroup;
+    public AutoLightingPolicy(String name, KNXAdapter adapter, int scene, Toggle enabled, Toggle night,
+                              OccupancySensor occupancy, GroupAddress sceneGroup, GroupAddress offGroup) {
+        super(name, adapter, enabled.getLocation(), PolicyKind.PRESENCE);
+        if (scene < 0 || scene > 63) throw new IllegalArgumentException("Scene must be 0..63");
+        this.scene = scene; this.enabled = enabled; this.night = night; this.occupancy = occupancy;
+        this.sceneGroup = sceneGroup; this.offGroup = offGroup;
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "scene", sceneGroup, "18.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "off", offGroup, "1.001");
     }
-
-    @Override
-    public void start() {
-        eventBus.subscribe(this);
-
-        Logger.info("[" + name + "] started.");
-    }
-
-    @Override
-    public void accept(EntityEvent event) {
-        if (!enabledToggle.isOn()) return;
-
-        if (event instanceof StateChangedEvent sce) {
-            String id = sce.entityId();
-
-            if (enabledToggle.isOn() && id.equals(occSensor.getNamedId())) {
-                boolean occupied = (boolean) sce.value();
-                if (occupied) {
-                    onMotionDetected();
-                } else {
-                    try {
-                        switchAllLights(false);
-                    } catch (Exception e) {
-                        Logger.error("[" + name + "] failed to switch all lights.", e);
-                    }
-                }
-            }
+    @Override protected void evaluate() { }
+    @Override protected void handle(EntityEvent event) throws Exception {
+        if (!enabled.isOn() || !night.isStateKnown() || night.isOn() || !occupancy.isStateKnown()) return;
+        if (event instanceof StateChangedEvent state && state.entityId().equals(occupancy.getNamedId())
+                && state.value() instanceof Boolean occupied) {
+            if (occupied) adapter.bus().write(sceneGroup, scene, ProcessCommunication.UNSCALED);
+            else adapter.bus().write(offGroup, false);
         }
-    }
-
-    private synchronized void onMotionDetected() {
-        triggerScene();
-    }
-
-    @Override
-    public synchronized void update() {}
-
-    private void triggerScene() {
-        try {
-            Logger.info("[" + name + "] triggering scene.");
-            adapter.communicator().write(sceneGroup, sceneNumber, ProcessCommunication.UNSCALED);
-        } catch (Exception e) {
-            Logger.error("[" + name + "] scene error: " + e.getMessage());
-        }
-    }
-
-    private void switchAllLights(boolean state) throws Exception {
-        adapter.communicator().write(allLightsGroup, state);
     }
 }

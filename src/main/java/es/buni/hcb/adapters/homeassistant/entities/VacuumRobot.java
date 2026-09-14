@@ -6,7 +6,7 @@ import es.buni.hcb.utils.Logger;
 
 public class VacuumRobot extends HomeAssistantEntity {
 
-    private String state = "unknown";
+    private volatile String state = "unknown";
 
     public VacuumRobot(HomeAssistantAdapter adapter, String location, String id, String haEntityId) {
         super(adapter, location, id, haEntityId);
@@ -39,6 +39,8 @@ public class VacuumRobot extends HomeAssistantEntity {
                     getNamedId(), oldState, state));
         }
     }
+
+    public boolean hasKnownState() { return !"unknown".equals(state) && !"unavailable".equals(state); }
 
     public boolean isCleaning() {
         return "cleaning".equalsIgnoreCase(state);

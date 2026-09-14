@@ -1,107 +1,87 @@
 package es.buni.hcb.adapters.knx.entities;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
-import es.buni.hcb.utils.Logger;
+import es.buni.hcb.adapters.knx.KnxBinding;
 import io.calimero.GroupAddress;
 import io.calimero.process.ProcessEvent;
 import io.calimero.process.ProcessListener;
 import io.github.hapjava.accessories.SwitchAccessory;
 import io.github.hapjava.characteristics.HomekitCharacteristicChangeCallback;
-
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+/** Software-owned automation state; unlike a light, it has no independent actuator feedback. */
 public class Toggle extends KNXEntity implements SwitchAccessory {
     private final GroupAddress address;
-    private volatile boolean isOn;
+    private volatile boolean on;
+    private final java.util.concurrent.atomic.AtomicLong manualRevision = new java.util.concurrent.atomic.AtomicLong();
+    private volatile HomekitCharacteristicChangeCallback callback;
 
-    private HomekitCharacteristicChangeCallback subscribeCallback;
-    private Runnable onToggleListener;
-
-    public Toggle(KNXAdapter adapter, String location, String id,
-                  int mainGroup, int middleGroup, int subGroup) {
+    public Toggle(KNXAdapter adapter, String location, String id, int main, int middle, int sub) {
         super(adapter, location, id);
-        this.address = new GroupAddress(mainGroup, middleGroup, subGroup);
+        address = new GroupAddress(main, middle, sub);
     }
-
-    public boolean isOn() {
-        return isOn;
+    public boolean isOn() { return known(address) && on; }
+    public long manualRevision() { return manualRevision.get(); }
+    @Override public Set<GroupAddress> groupAddresses() { return Set.of(address); }
+    @Override public List<KnxBinding> bindings() {
+        return List.of(binding("enabled", address, "1.001", KnxBinding.Role.SOFTWARE_STATE));
     }
-
-    public void setOnToggleListener(Runnable listener) {
-        this.onToggleListener = listener;
-    }
-
-    @Override
-    public Set<GroupAddress> groupAddresses() {
-        return Set.of(address);
-    }
-
-    @Override
-    public void initialize() throws Exception {
-        try {
-            isOn = adapter.communicator().readBool(address);
-        } catch (Exception e) {
-            isOn = false;
-        }
+    @Override public synchronized void initialize() throws Exception {
+        try { on = adapter.bus().readBool(address); observed(address); }
+        catch (Exception e) { forget(address); throw e; }
         super.initialize();
     }
-
-    @Override
-    protected boolean updateState(GroupAddress addr, ProcessEvent event) throws Exception {
-        boolean newState = ProcessListener.asBool(event);
-        if (isOn != newState) {
-            isOn = newState;
-            return true;
+    @Override protected synchronized boolean updateState(GroupAddress ga, ProcessEvent event) throws Exception {
+        on = ProcessListener.asBool(event);
+        if (event.getServiceCode() == 0x80 && !adapter.isLocalSource(event)) {
+            manualRevision.incrementAndGet();
+            if (on) resumePolicy();
         }
-        return false;
+        observed(address);
+        // Repeated explicit OFF still means a manual decision (e.g. cancel a restore timer).
+        return true;
     }
-
-    @Override
-    protected void onStateUpdated(GroupAddress addr, ProcessEvent event) {
-        onToggleStateChanged();
+    @Override protected void onStateUpdated(GroupAddress ga, ProcessEvent event) {
+        if (callback != null) callback.changed();
+        publishBusState("state", on, event);
     }
-
-    private void onToggleStateChanged() {
-        Logger.info("Toggle " + getNamedId() + " set to " + isOn);
-
-        if (subscribeCallback != null) {
-            subscribeCallback.changed();
+    @Override public CompletableFuture<Boolean> getSwitchState() { return stateFuture(address, on); }
+    @Override public CompletableFuture<Void> setSwitchState(boolean value) throws Exception {
+        return setState(value, es.buni.hcb.core.events.StateChangedEvent.Origin.LOCAL);
+    }
+    public CompletableFuture<Void> setAutomationState(boolean value) throws Exception {
+        return setState(value, es.buni.hcb.core.events.StateChangedEvent.Origin.AUTOMATION);
+    }
+    public CompletableFuture<Void> setModeState(boolean value) throws Exception {
+        return setState(value, es.buni.hcb.core.events.StateChangedEvent.Origin.MODE);
+    }
+    private CompletableFuture<Void> setState(boolean value, es.buni.hcb.core.events.StateChangedEvent.Origin origin) throws Exception {
+        long epoch = adapter.processingGeneration();
+        if (origin == es.buni.hcb.core.events.StateChangedEvent.Origin.LOCAL) {
+            manualRevision.incrementAndGet();
+            if (value) resumePolicy();
         }
-        if (onToggleListener != null) {
-            onToggleListener.run();
+        synchronized (this) {
+            adapter.bus().write(address, value);
+            on = value;
+            observed(address, epoch);
         }
-
-        publishStateChanged(isOn);
-    }
-
-    @Override
-    public CompletableFuture<Boolean> getSwitchState() {
-        return CompletableFuture.completedFuture(isOn);
-    }
-
-    @Override
-    public CompletableFuture<Void> setSwitchState(boolean state) throws Exception {
-        if (this.isOn != state) {
-            this.isOn = state;
-            adapter.communicator().write(address, state);
-
-            if (onToggleListener != null) {
-                onToggleListener.run();
-            }
-
-            onToggleStateChanged();
-        }
+        if (callback != null) callback.changed();
+        publishEvent(new es.buni.hcb.core.events.StateChangedEvent(getNamedId(), "state", value, adapter.clock().millis(), origin), epoch);
         return CompletableFuture.completedFuture(null);
     }
-
-    @Override
-    public void subscribeSwitchState(HomekitCharacteristicChangeCallback callback) {
-        this.subscribeCallback = callback;
+    private void resumePolicy() {
+        var kind = switch (getIId()) {
+            case "toggle.autolighting" -> es.buni.hcb.automation.PolicyKind.PRESENCE;
+            case "toggle.constantlighting" -> es.buni.hcb.automation.PolicyKind.CONSTANT_LIGHT;
+            case "toggle.adaptivelighting" -> es.buni.hcb.automation.PolicyKind.ADAPTIVE_COLOR;
+            case "toggle.nightlighting" -> es.buni.hcb.automation.PolicyKind.NIGHT_LIGHT;
+            default -> null;
+        };
+        if (kind != null) adapter.manualOverrides().resume(getLocation(), kind);
     }
-
-    @Override
-    public void unsubscribeSwitchState() {
-        this.subscribeCallback = null;
-    }
+    @Override public void subscribeSwitchState(HomekitCharacteristicChangeCallback value) { callback = value; }
+    @Override public void unsubscribeSwitchState() { callback = null; }
 }

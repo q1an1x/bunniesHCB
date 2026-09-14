@@ -18,6 +18,8 @@ public class ExternalInterfaceManager {
                 iface.start();
             } catch (Exception e) {
                 Logger.error("Failed to start interface " + iface.getName(), e);
+                stopAll();
+                throw new IllegalStateException("External interface startup failed", e);
             }
         }
     }

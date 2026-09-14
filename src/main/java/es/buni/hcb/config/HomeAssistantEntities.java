@@ -15,6 +15,6 @@ public class HomeAssistantEntities {
                 "bedroom.south",
                 "googletv",
                 "media_player.google_tv_2"
-        ));;
+        ));
     }
 }

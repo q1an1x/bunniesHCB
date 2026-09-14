@@ -51,6 +51,15 @@ public class Curtain extends KNXEntity
         );
     }
 
+    @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        return java.util.List.of(
+                binding("move", stateAddress, "1.008", es.buni.hcb.adapters.knx.KnxBinding.Role.COMMAND),
+                binding("stop", stopValueAddress, "1.007", es.buni.hcb.adapters.knx.KnxBinding.Role.COMMAND),
+                binding("targetPosition", positionAddress, "5.001", es.buni.hcb.adapters.knx.KnxBinding.Role.COMMAND),
+                binding("position", statusPositionAddress, "5.001", es.buni.hcb.adapters.knx.KnxBinding.Role.STATUS));
+    }
+
     public static Curtain fromConvention(
             KNXAdapter adapter, String location, String id,
             int stateAddressMainGroup, int stateAddressMiddleGroup, int stateAddressSubGroup
@@ -114,21 +123,16 @@ public class Curtain extends KNXEntity
         writeState(STATE_CLOSED);
     }
 
-    public void setPosition(int position) throws Exception {
-        this.targetPosition = position;
+    public synchronized void setPosition(int position) throws Exception {
+        if (position < 0 || position > 100) throw new IllegalArgumentException("Position must be 0..100");
+        if (position == POSITION_FULLY_OPEN) open();
+        else if (position == POSITION_FULLY_CLOSED) close();
+        else writePosition(position);
+        targetPosition = position;
         updatePositionState();
-
         if (positionStateCallback != null) positionStateCallback.changed();
         if (targetPositionCallback != null) targetPositionCallback.changed();
-
         resetTimeoutWatcher();
-        if (position == POSITION_FULLY_OPEN) {
-            open();
-        } else if (position == POSITION_FULLY_CLOSED) {
-            close();
-        } else {
-            writePosition(position);
-        }
     }
 
     private int invert(int value) {
@@ -142,17 +146,18 @@ public class Curtain extends KNXEntity
 
         if (positionState == PositionStateEnum.STOPPED) return;
 
-        timeoutTask = scheduler.schedule(() -> {
-            if (positionState != PositionStateEnum.STOPPED) {
-                Logger.info(getNamedId() + " movement timeout reached. Forcing position to target: " + targetPosition);
-                this.position = this.targetPosition;
-                this.positionState = PositionStateEnum.STOPPED;
+        timeoutTask = scheduler.schedule(this::movementTimedOut, POSITION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
 
-                if (positionCallback != null) positionCallback.changed();
-                if (positionStateCallback != null) positionStateCallback.changed();
-                publishStateChanged("position", position);
-            }
-        }, POSITION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    synchronized void movementTimedOut() {
+        if (positionState != PositionStateEnum.STOPPED) {
+            Logger.warn(getNamedId() + " movement feedback timed out; actual position is unknown");
+            forget(statusPositionAddress);
+            positionState = PositionStateEnum.STOPPED;
+            if (positionCallback != null) positionCallback.changed();
+            if (positionStateCallback != null) positionStateCallback.changed();
+            publishStateChanged("availability", false);
+        }
     }
 
     private void updatePositionState() {
@@ -166,16 +171,13 @@ public class Curtain extends KNXEntity
     }
 
     private void writeState(boolean state) throws Exception {
-        adapter.communicator().write(stateAddress, state);
+        adapter.bus().write(stateAddress, state);
     }
 
     private void readPosition() throws Exception {
-        targetPosition = invert(
-                adapter.communicator().readUnsigned(positionAddress, ProcessCommunication.SCALING)
-        );
-        position = invert(
-                adapter.communicator().readUnsigned(statusPositionAddress, ProcessCommunication.SCALING)
-        );
+        position = invert(adapter.bus().readUnsigned(statusPositionAddress, ProcessCommunication.SCALING));
+        targetPosition = position;
+        observed(statusPositionAddress);
 
         updatePositionState();
         if (targetPosition != position) {
@@ -184,7 +186,7 @@ public class Curtain extends KNXEntity
     }
 
     private void writePosition(int position) throws Exception {
-        adapter.communicator().write(positionAddress, invert(position), ProcessCommunication.SCALING);
+        adapter.bus().write(positionAddress, invert(position), ProcessCommunication.SCALING);
     }
 
     @Override
@@ -204,7 +206,9 @@ public class Curtain extends KNXEntity
                     ProcessListener.asUnsigned(event, ProcessCommunication.SCALING)
             );
 
-            if (position != newPosition) {
+            boolean first = !known(address);
+            observed(address);
+            if (first || position != newPosition) {
                 position = newPosition;
                 changed = true;
                 resetTimeoutWatcher();
@@ -261,6 +265,7 @@ public class Curtain extends KNXEntity
     }
 
     protected void onPositionChanged(int newValue) {
+        if (positionCallback != null) positionCallback.changed();
         Logger.info(getNamedId() + " position changed to " + newValue);
 
         if (positionCallback != null) {
@@ -285,12 +290,12 @@ public class Curtain extends KNXEntity
 
     @Override
     public CompletableFuture<Integer> getCurrentPosition() {
-        return CompletableFuture.completedFuture(position);
+        return stateFuture(statusPositionAddress, position);
     }
 
     @Override
     public CompletableFuture<Integer> getTargetPosition() {
-        return CompletableFuture.completedFuture(targetPosition);
+        return stateFuture(statusPositionAddress, targetPosition);
     }
 
     @Override
@@ -341,9 +346,11 @@ public class Curtain extends KNXEntity
         Logger.info("HomeKit set " + getNamedId() + " hold position to " + hold);
 
         if (hold) {
-            adapter.communicator().write(stopValueAddress, true);
+            adapter.bus().write(stopValueAddress, true);
             positionState = PositionStateEnum.STOPPED;
+            if (timeoutTask != null) timeoutTask.cancel(false);
+            if (positionStateCallback != null) positionStateCallback.changed();
         }
-        return null;
+        return CompletableFuture.completedFuture(null);
     }
 }

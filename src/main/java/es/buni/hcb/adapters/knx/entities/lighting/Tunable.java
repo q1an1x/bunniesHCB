@@ -16,10 +16,6 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
     public static final int COLOR_TEMPERATURE_MIN_KELVIN = 2702;
     public static final int COLOR_TEMPERATURE_MAX_KELVIN = 6535;
 
-    private static final long COLOR_TEMPERATURE_DIMMING_TIME_MS = 5000;
-
-    private volatile long colorTemperatureLastSetAt = 0;
-
     protected final GroupAddress colorTemperatureValueAddress;
     protected final GroupAddress statusColorTemperatureAddress;
 
@@ -43,13 +39,21 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
         );
     }
 
+    @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        var result = new java.util.ArrayList<>(super.bindings());
+        result.add(binding("colorTemperature", colorTemperatureValueAddress, "7.600", es.buni.hcb.adapters.knx.KnxBinding.Role.COMMAND));
+        result.add(binding("colorTemperatureStatus", statusColorTemperatureAddress, "7.600", es.buni.hcb.adapters.knx.KnxBinding.Role.STATUS));
+        return java.util.List.copyOf(result);
+    }
+
     public int getColorTemperatureValue() {
         return colorTemperature;
     }
 
     public void setColorTemperatureValue(int colorTemperature) throws Exception {
-        this.colorTemperature = colorTemperature;
-        this.colorTemperatureLastSetAt = System.currentTimeMillis();
+        if (colorTemperature < COLOR_TEMPERATURE_MIN_KELVIN || colorTemperature > COLOR_TEMPERATURE_MAX_KELVIN)
+            throw new IllegalArgumentException("Color temperature outside lamp range");
         writeColorTemperature(colorTemperature);
     }
 
@@ -100,11 +104,7 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
 
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
-        if (address.equals(statusColorTemperatureAddress) || address.equals(colorTemperatureValueAddress)) {
-            if (System.currentTimeMillis() - colorTemperatureLastSetAt < COLOR_TEMPERATURE_DIMMING_TIME_MS) {
-                return false;
-            }
-
+        if (address.equals(statusColorTemperatureAddress)) {
             byte[] asdu = event.getASDU();
 
             if (asdu.length < 2) {
@@ -120,10 +120,11 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
 
             int newKelvin = t.getValueUnsigned();
 
-            if (newKelvin != colorTemperature) {
-                colorTemperature = newKelvin;
-                return true;
-            }
+            if (newKelvin <= 0) { forget(address); return false; }
+            boolean changed = !known(address) || newKelvin != colorTemperature;
+            colorTemperature = newKelvin;
+            observed(address);
+            return changed;
         }
 
         return super.updateState(address, event);
@@ -133,9 +134,9 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
         super.onStateUpdated(address, event);
 
-        if (address.equals(statusColorTemperatureAddress) || address.equals(colorTemperatureValueAddress)) {
+        if (address.equals(statusColorTemperatureAddress)) {
             onColorTemperatureChanged(colorTemperature);
-            publishStateChanged("colorTemperature", colorTemperature);
+            publishBusState("colorTemperature", colorTemperature, event);
         }
     }
 
@@ -149,17 +150,20 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
 
     @Override
     public void initialize() throws Exception {
-        readColorTemperature();
-
-        super.initialize();
+        Exception failure = null;
+        try { readColorTemperature(); } catch (Exception e) { failure = e; }
+        try { super.initialize(); } catch (Exception e) { if (failure == null) failure = e; else failure.addSuppressed(e); }
+        if (failure != null) throw failure;
     }
 
     private void readColorTemperature() throws Exception {
-        colorTemperature = (int) adapter.communicator().readNumeric(statusColorTemperatureDP);
+        colorTemperature = (int) adapter.bus().readNumeric(statusColorTemperatureDP);
+        if (colorTemperature <= 0) throw new IllegalStateException("No valid color temperature feedback");
+        observed(statusColorTemperatureAddress);
     }
 
     private void writeColorTemperature(int colorTemperature) throws Exception {
-        adapter.communicator().write(colorTemperatureValueDP, String.valueOf(colorTemperature));
+        adapter.bus().write(colorTemperatureValueDP, String.valueOf(colorTemperature));
     }
 
     @Override
@@ -170,16 +174,18 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
 
     @Override
     public CompletableFuture<Integer> getColorTemperature() {
-        return CompletableFuture.completedFuture(
-                convert(getColorTemperatureValue())
-        );
+        if (!known(statusColorTemperatureAddress) || colorTemperature <= 0)
+            return CompletableFuture.failedFuture(new IllegalStateException("Color temperature unavailable"));
+        return CompletableFuture.completedFuture(Math.max(getMinColorTemperature(),
+                Math.min(getMaxColorTemperature(), convert(colorTemperature))));
     }
 
     @Override
     public CompletableFuture<Void> setColorTemperature(Integer value) throws Exception {
-        setColorTemperatureValue(
-                convert(value)
-        );
+        if (value == null || value < getMinColorTemperature() || value > getMaxColorTemperature())
+            throw new IllegalArgumentException("Color temperature outside HomeKit range");
+        adapter.manualOverrides().hold(getLocation(), es.buni.hcb.automation.ManualOverrides.COLOR);
+        setColorTemperatureValue(convert(value));
 
         Logger.info("HomeKit set " + getNamedId() + " color temperature to " + colorTemperature);
         return CompletableFuture.completedFuture(null);
