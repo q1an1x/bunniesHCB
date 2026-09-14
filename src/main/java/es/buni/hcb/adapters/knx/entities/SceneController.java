@@ -34,6 +34,7 @@ public class SceneController extends KNXEntity {
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
         if (event.getServiceCode() != 0x80 || event.getASDU().length != 1) return false;
+        if (adapter.isLocalSource(event)) return false; // Software scene echoes are not manual scene selections.
         int value = ProcessListener.asUnsigned(event, ProcessCommunication.UNSCALED);
         if ((value & 0xc0) != 0) return false; // DPT 18: ignore store and reserved-bit frames.
         if (adapter.isAutomationReady()) publishEvent(SceneRecalledEvent.of(getNamedId(), value));

@@ -184,6 +184,7 @@ public class Tunable extends Dimmable implements AccessoryWithColorTemperature {
     public CompletableFuture<Void> setColorTemperature(Integer value) throws Exception {
         if (value == null || value < getMinColorTemperature() || value > getMaxColorTemperature())
             throw new IllegalArgumentException("Color temperature outside HomeKit range");
+        adapter.manualOverrides().hold(getLocation(), Set.of(es.buni.hcb.automation.PolicyKind.ADAPTIVE_COLOR));
         setColorTemperatureValue(convert(value));
 
         Logger.info("HomeKit set " + getNamedId() + " color temperature to " + colorTemperature);

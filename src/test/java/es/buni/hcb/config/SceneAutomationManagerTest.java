@@ -26,6 +26,22 @@ class SceneAutomationManagerTest {
         void fire(){for(var task:List.copyOf(tasks))task.run();tasks.clear();}
     }
     private static void flush(FakeKnx fake){fake.adapter.getRegistry().getEventBus().barrier().join();fake.adapter.getRegistry().getEventBus().barrier().join();}
+    @Test void selectingAHouseModeInvalidatesOldSceneAndDelayedOffTimers() throws Exception {
+        try(var fake=new FakeKnx()){
+            var timers=new ManualTimers();fake.timersOverride=timers.executor;
+            var toggle=new Toggle(fake.adapter,"bedroom.north","toggle.constantlighting",3,0,1);
+            var button=new es.buni.hcb.config.knx.DelayedOffButton(fake.adapter,"bedroom.north","delayedoff",3,0,5,
+                    java.util.Set.of(new io.calimero.GroupAddress("3/0/31")));
+            fake.adapter.register(toggle);fake.adapter.register(button);
+            fake.adapter.registerService(new SceneAutomationManager(fake.adapter));
+            fake.adapter.configureHouseModes();fake.start();toggle.setSwitchState(true);flush(fake);
+            fake.adapter.getRegistry().getEventBus().publish(SceneRecalledEvent.of("system.scenecontroller",11));flush(fake);
+            button.handleBusUpdate(new io.calimero.GroupAddress("3/0/5"),fake.event("3/0/5",0x80,(byte)1));
+            fake.adapter.houseModes().select(es.buni.hcb.automation.modes.HouseMode.CLEANING).get(3,TimeUnit.SECONDS);flush(fake);
+            fake.writes.clear();timers.fire();flush(fake);
+            assertFalse(toggle.isOn());assertTrue(fake.writes.isEmpty());
+        }
+    }
     @Test void manualOffCancelsAnAutomaticRestoreEvenWhenAlreadyOff() throws Exception {
         try(var fake=new FakeKnx()){
             var timers=new ManualTimers();fake.timersOverride=timers.executor;
@@ -35,6 +51,17 @@ class SceneAutomationManagerTest {
             fake.adapter.getRegistry().getEventBus().publish(SceneRecalledEvent.of("system.scenecontroller",11));flush(fake);
             assertFalse(toggle.isOn());toggle.setSwitchState(false);flush(fake);fake.writes.clear();timers.fire();flush(fake);
             assertFalse(toggle.isOn());assertTrue(fake.writes.isEmpty());
+        }
+    }
+    @Test void newerManualLightingInputCancelsAnEarlierDelayedOff() throws Exception {
+        try(var fake=new FakeKnx()){
+            var timers=new ManualTimers();fake.timersOverride=timers.executor;
+            var button=new es.buni.hcb.config.knx.DelayedOffButton(fake.adapter,"bedroom.north","delayedoff",3,0,5,
+                    java.util.Set.of(new io.calimero.GroupAddress("3/0/31")));
+            fake.adapter.register(button);fake.start();
+            button.handleBusUpdate(new io.calimero.GroupAddress("3/0/5"),fake.event("3/0/5",0x80,(byte)1));
+            fake.adapter.manualOverrides().hold("bedroom.north",es.buni.hcb.automation.ManualOverrides.LIGHT_LEVEL);
+            timers.fire();assertTrue(fake.writes.isEmpty());
         }
     }
     @Test void repeatedSceneReplacesItsTimerAndRestoresOnlyOnce() throws Exception {

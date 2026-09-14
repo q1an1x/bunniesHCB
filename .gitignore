@@ -48,6 +48,7 @@ configured-names.properties
 
 # Runtime state and private installation evidence
 health.json
+house-mode.json
 hcb.lock
 *.knxproj
 *.knxprojarchive

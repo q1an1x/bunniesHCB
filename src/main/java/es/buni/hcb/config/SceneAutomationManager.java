@@ -70,18 +70,20 @@ public final class SceneAutomationManager implements Lifecycle, Consumer<EntityE
             cancel(key);
             if (type == AutomationType.NIGHT) return;
             long epoch = adapter.generation();
+            long intent = adapter.intentRevision();
             long revision = ++nextRevision;
             revisions.put(key, revision);
-            timers.put(key, adapter.scheduler().schedule(() -> adapter.getRegistry().getEventBus().execute(() -> restore(key, toggle, epoch, revision)),
+            timers.put(key, adapter.scheduler().schedule(() -> adapter.getRegistry().getEventBus().execute(() -> restore(key, toggle, epoch, revision, intent)),
                     suspension.toMillis(), TimeUnit.MILLISECONDS));
         } catch (Exception e) { Logger.error("Unable to suspend " + key, e); }
     }
-    private synchronized void restore(String key, Toggle toggle, long epoch, long revision) {
+    private synchronized void restore(String key, Toggle toggle, long epoch, long revision, long intent) {
         if (!Objects.equals(revisions.get(key), revision)) return;
         revisions.remove(key);
         timers.remove(key);
         // Never replay an old timer into a new connection or overwrite unknown state.
-        if (!running || !adapter.isAutomationReady() || adapter.generation() != epoch || !toggle.isStateKnown()) return;
+        if (!running || !adapter.isAutomationReady() || adapter.generation() != epoch
+                || adapter.intentRevision() != intent || !toggle.isStateKnown()) return;
         try {
             toggle.setAutomationState(true);
         } catch (Exception e) { Logger.error("Unable to restore " + key, e); }

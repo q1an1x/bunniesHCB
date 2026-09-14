@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture;
 public class Toggle extends KNXEntity implements SwitchAccessory {
     private final GroupAddress address;
     private volatile boolean on;
+    private final java.util.concurrent.atomic.AtomicLong manualRevision = new java.util.concurrent.atomic.AtomicLong();
     private volatile HomekitCharacteristicChangeCallback callback;
 
     public Toggle(KNXAdapter adapter, String location, String id, int main, int middle, int sub) {
@@ -22,6 +23,7 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
         address = new GroupAddress(main, middle, sub);
     }
     public boolean isOn() { return known(address) && on; }
+    public long manualRevision() { return manualRevision.get(); }
     @Override public Set<GroupAddress> groupAddresses() { return Set.of(address); }
     @Override public List<KnxBinding> bindings() {
         return List.of(binding("enabled", address, "1.001", KnxBinding.Role.SOFTWARE_STATE));
@@ -33,6 +35,10 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
     }
     @Override protected synchronized boolean updateState(GroupAddress ga, ProcessEvent event) throws Exception {
         on = ProcessListener.asBool(event);
+        if (event.getServiceCode() == 0x80 && !adapter.isLocalSource(event)) {
+            manualRevision.incrementAndGet();
+            if (on) resumePolicy();
+        }
         observed(address);
         // Repeated explicit OFF still means a manual decision (e.g. cancel a restore timer).
         return true;
@@ -48,8 +54,15 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
     public CompletableFuture<Void> setAutomationState(boolean value) throws Exception {
         return setState(value, es.buni.hcb.core.events.StateChangedEvent.Origin.AUTOMATION);
     }
+    public CompletableFuture<Void> setModeState(boolean value) throws Exception {
+        return setState(value, es.buni.hcb.core.events.StateChangedEvent.Origin.MODE);
+    }
     private CompletableFuture<Void> setState(boolean value, es.buni.hcb.core.events.StateChangedEvent.Origin origin) throws Exception {
         long epoch = adapter.processingGeneration();
+        if (origin == es.buni.hcb.core.events.StateChangedEvent.Origin.LOCAL) {
+            manualRevision.incrementAndGet();
+            if (value) resumePolicy();
+        }
         synchronized (this) {
             adapter.bus().write(address, value);
             on = value;
@@ -58,6 +71,16 @@ public class Toggle extends KNXEntity implements SwitchAccessory {
         if (callback != null) callback.changed();
         publishEvent(new es.buni.hcb.core.events.StateChangedEvent(getNamedId(), "state", value, adapter.clock().millis(), origin), epoch);
         return CompletableFuture.completedFuture(null);
+    }
+    private void resumePolicy() {
+        var kind = switch (getIId()) {
+            case "toggle.autolighting" -> es.buni.hcb.automation.PolicyKind.PRESENCE;
+            case "toggle.constantlighting" -> es.buni.hcb.automation.PolicyKind.CONSTANT_LIGHT;
+            case "toggle.adaptivelighting" -> es.buni.hcb.automation.PolicyKind.ADAPTIVE_COLOR;
+            case "toggle.nightlighting" -> es.buni.hcb.automation.PolicyKind.NIGHT_LIGHT;
+            default -> null;
+        };
+        if (kind != null) adapter.manualOverrides().resume(getLocation(), kind);
     }
     @Override public void subscribeSwitchState(HomekitCharacteristicChangeCallback value) { callback = value; }
     @Override public void unsubscribeSwitchState() { callback = null; }

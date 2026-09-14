@@ -8,7 +8,7 @@ public record StateChangedEvent(
         Origin origin
 ) implements EntityEvent {
 
-    public enum Origin { LOCAL, AUTOMATION, BUS_WRITE, BUS_RESPONSE, BUS_ECHO }
+    public enum Origin { LOCAL, AUTOMATION, MODE, BUS_WRITE, BUS_RESPONSE, BUS_ECHO }
 
     public static StateChangedEvent fromBus(String id, String property, Object value, boolean response) {
         return new StateChangedEvent(id, property, value, System.currentTimeMillis(),

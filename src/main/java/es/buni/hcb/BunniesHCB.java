@@ -34,10 +34,14 @@ public final class BunniesHCB {
                     : options.localAddress() == null ? NetworkUtils.getFirstUsableIPv4() : InetAddress.getByName(options.localAddress()));
             var knx = new KNXAdapter(registry, options.knx(), new CalimeroConnectionFactory(network, options.knx()), Clock.system(options.zone()));
             knx.configure();
+            knx.houseModes().setStorage(options.stateDir().resolve("house-mode.json"));
+            knx.manualOverrides().duration(options.manualHold());
             if (options.knx().mode() == KnxMode.OFFLINE) {
                 try {
                     if (options.inventory() != null) writeInventory(knx, options.inventory());
-                    Logger.info("Offline validation: " + knx.entities().size() + " KNX entities, " + knx.bindings().size()
+                    if (options.explainMode() != null) System.out.println(new GsonBuilder().setPrettyPrinting().create()
+                            .toJson(knx.houseModes().preview(options.explainMode())));
+                    Logger.info("Offline validation: " + knx.entities().size() + " entities, " + knx.bindings().size()
                             + " bindings; no network or device operations");
                 } finally { knx.stop(); registry.getEventBus().close(); }
                 return 0;
@@ -116,10 +120,12 @@ public final class BunniesHCB {
         System.out.println("""
                 bunniesHCB — defaults to OFFLINE (no sockets or device I/O)
                 --mode offline [--inventory PATH]
+                --explain-mode home|away|sleep|movie|cleaning|guest (offline only)
                 --mode observe --knx-gateway HOST [--observe-seconds N]
                 --mode live --knx-gateway HOST [--enable-automations] [--enable-time-service]
                 --local-address IP --knx-port 3671 --knx-nat --knx-silence-seconds 45
                 --state-dir PATH --timezone Asia/Shanghai --disable-homekit
+                --manual-hold-minutes 30
                 --ha-host HOST [--ha-token-file PATH] (or HCB_HA_TOKEN / HCB_HA_TOKEN_FILE)
                 --enable-oven --oven-host HOST --oven-mac MAC [--oven-homekit]
                 --debug --help

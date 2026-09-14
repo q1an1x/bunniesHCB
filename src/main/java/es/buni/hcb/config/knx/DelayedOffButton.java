@@ -26,8 +26,11 @@ public final class DelayedOffButton extends Button {
     @Override protected synchronized void onButtonPressed() {
         if (pending != null) pending.cancel(false);
         long epoch = adapter.generation();
-        pending = adapter.scheduler().schedule(() -> {
-            if (!adapter.isAutomationReady() || epoch != adapter.generation()) return;
+        long intent = adapter.intentRevision();
+        long manual = adapter.manualOverrides().revision(getLocation());
+        pending = adapter.scheduler().schedule(() -> adapter.runInSession(epoch, () -> {
+            if (!adapter.isAutomationReady() || intent != adapter.intentRevision()
+                    || manual != adapter.manualOverrides().revision(getLocation())) return;
             for (GroupAddress address : targets.stream().sorted().toList()) {
                 try {
                     var toggle = adapter.entities().stream().filter(e -> e instanceof Toggle t && t.groupAddresses().contains(address))
@@ -36,7 +39,7 @@ public final class DelayedOffButton extends Button {
                     else adapter.bus().write(address, false);
                 } catch (Exception e) { Logger.error("Delayed off failed for " + address, e); }
             }
-        }, delayMinutes, TimeUnit.MINUTES);
+        }), delayMinutes, TimeUnit.MINUTES);
     }
     @Override public synchronized void shutdown() { if (pending != null) pending.cancel(false); }
 }

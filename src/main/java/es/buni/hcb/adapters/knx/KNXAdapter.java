@@ -4,6 +4,9 @@ import es.buni.hcb.adapters.Adapter;
 import es.buni.hcb.adapters.knx.entities.KNXEntity;
 import es.buni.hcb.adapters.knx.services.KNXTimeService;
 import es.buni.hcb.config.KNXEntities;
+import es.buni.hcb.automation.PolicyKind;
+import es.buni.hcb.automation.ManualOverrides;
+import es.buni.hcb.automation.modes.*;
 import es.buni.hcb.core.EntityRegistry;
 import es.buni.hcb.core.Lifecycle;
 import es.buni.hcb.core.NetworkContext;
@@ -45,6 +48,8 @@ public class KNXAdapter extends Adapter implements Reconnectable {
     private ScheduledFuture<?> reconnectTask;
     private long backoffMillis;
     private final HealthMonitor healthMonitor;
+    private HouseModeController houseModes;
+    private final ManualOverrides manualOverrides = new ManualOverrides(this);
 
     public KNXAdapter(EntityRegistry registry, NetworkContext network) {
         this(registry, network, KnxSettings.defaults(KnxMode.OFFLINE, null));
@@ -69,9 +74,18 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         if (configured) return;
         if (closed) throw new IllegalStateException("Adapter was shut down");
         KNXEntities.registerAll(this);
+        configureHouseModes();
         registerService(new KNXTimeService(this, 0, 6, 123, 0, 6, 124));
         for (KnxBinding binding : bindings()) if (binding.writable()) allowWrite(binding.address(), binding.dpt());
         configured = true;
+    }
+
+    public synchronized void configureHouseModes() {
+        if (houseModes != null) return;
+        if (servicesStarted) throw new IllegalStateException("Configure modes before startup");
+        houseModes = new HouseModeController(this);
+        for (HouseMode mode : HouseMode.values()) super.register(new ModeAccessory(this, houseModes, mode));
+        services.addFirst(houseModes); // Load the mode gate before starting policies.
     }
 
     public void register(KNXEntity entity) {
@@ -80,6 +94,11 @@ public class KNXAdapter extends Adapter implements Reconnectable {
             entitiesByGroupAddress.computeIfAbsent(address, ignored -> ConcurrentHashMap.newKeySet()).add(entity);
         }
         entity.bindings().stream().filter(KnxBinding::writable).forEach(b -> allowWrite(b.address(), b.dpt()));
+        if (entity instanceof es.buni.hcb.adapters.knx.entities.lighting.Light) {
+            for (KnxBinding binding : entity.bindings()) if (binding.writable())
+                manualOverrides.register(entity.getLocation(), binding.address(), binding.property().equals("colorTemperature")
+                        ? Set.of(PolicyKind.ADAPTIVE_COLOR) : ManualOverrides.LIGHT_LEVEL);
+        }
     }
 
     public synchronized void registerService(Lifecycle service) {
@@ -90,6 +109,11 @@ public class KNXAdapter extends Adapter implements Reconnectable {
     public void declareCommand(String owner, String property, GroupAddress address, String dpt) {
         serviceBindings.add(new KnxBinding(owner, property, address, dpt, KnxBinding.Role.COMMAND));
         allowWrite(address, dpt);
+    }
+    public void declarePolicyCommand(String owner, String room, String property, GroupAddress address, String dpt) {
+        declareCommand(owner, property, address, dpt);
+        if (!dpt.equals("18.001")) manualOverrides.register(room, address, dpt.equals("7.600")
+                ? Set.of(PolicyKind.ADAPTIVE_COLOR) : ManualOverrides.LIGHT_LEVEL);
     }
 
     public List<KnxBinding> bindings() {
@@ -168,6 +192,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         if (state == ConnectionState.RECONNECTING && reconnectTask != null && !reconnectTask.isDone()) return;
         state = ConnectionState.RECONNECTING;
         generation.incrementAndGet();
+        if (houseModes != null) houseModes.connectionLost();
         KnxConnection old = connection;
         connection = null;
         for (var entity : entities()) if (entity instanceof KNXEntity knx) knx.invalidateState();
@@ -189,6 +214,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         healthMonitor.receivedTelegram();
         try {
             events.execute(() -> runInSession(epoch, () -> {
+                manualOverrides.observe(event);
                 var listeners = entitiesByGroupAddress.getOrDefault(event.getDestination(), Set.of());
                 for (KNXEntity entity : listeners) {
                     try { entity.handleBusUpdate(event.getDestination(), event); }
@@ -227,6 +253,12 @@ public class KNXAdapter extends Adapter implements Reconnectable {
     }
 
     public KnxBus bus() { return bus; }
+    public HouseModeController houseModes() { return houseModes; }
+    public long intentRevision() { return houseModes == null ? 0 : houseModes.selectionRevision(); }
+    public ManualOverrides manualOverrides() { return manualOverrides; }
+    public boolean permitsPolicy(String room, PolicyKind kind) {
+        return (houseModes == null || houseModes.permits(room, kind)) && manualOverrides.permits(room, kind);
+    }
     public KnxSettings settings() { return settings; }
     public ScheduledExecutorService scheduler() { return automationScheduler; }
     public boolean isLocalSource(ProcessEvent event) {

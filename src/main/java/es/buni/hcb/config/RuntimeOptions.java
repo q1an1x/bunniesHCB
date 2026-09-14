@@ -9,7 +9,8 @@ import java.util.*;
 public record RuntimeOptions(KnxSettings knx, String localAddress, Path stateDir, Path inventory,
                              String haHost, String haToken, Path haTokenFile, boolean homekit,
                              boolean oven, boolean ovenHomekit, String ovenHost, String ovenMac,
-                             ZoneId zone, long observeSeconds, boolean debug, boolean help) {
+                             ZoneId zone, long observeSeconds, Duration manualHold,
+                             es.buni.hcb.automation.modes.HouseMode explainMode, boolean debug, boolean help) {
     public static RuntimeOptions parse(String[] args, Map<String, String> environment) {
         var values = new HashMap<String, String>();
         var flags = new HashSet<String>();
@@ -17,7 +18,7 @@ public record RuntimeOptions(KnxSettings knx, String localAddress, Path stateDir
                 "enable-automations", "enable-time-service");
         var valueNames = Set.of("mode", "knx-gateway", "knx-port", "local-address", "state-dir", "inventory",
                 "ha-host", "ha-token", "ha-token-file", "oven-host", "oven-mac", "timezone", "observe-seconds",
-                "knx-silence-seconds");
+                "knx-silence-seconds", "manual-hold-minutes", "explain-mode");
         for (int i = 0; i < args.length; i++) {
             if (!args[i].startsWith("--")) throw new IllegalArgumentException("Expected an option name");
             String option = args[i].substring(2);
@@ -48,9 +49,13 @@ public record RuntimeOptions(KnxSettings knx, String localAddress, Path stateDir
         if (seconds < 0 || (seconds > 0 && mode != KnxMode.OBSERVE)) throw new IllegalArgumentException("--observe-seconds requires observe mode");
         Path inventory = path(values.get("inventory"));
         if (inventory != null && mode != KnxMode.OFFLINE) throw new IllegalArgumentException("--inventory requires offline mode");
+        int holdMinutes = integer(values, "manual-hold-minutes", 30);
+        if (holdMinutes < 1 || holdMinutes > 1440) throw new IllegalArgumentException("Manual hold must be 1..1440 minutes");
+        var explain = values.containsKey("explain-mode") ? es.buni.hcb.automation.modes.HouseMode.parse(values.get("explain-mode")) : null;
+        if (explain != null && mode != KnxMode.OFFLINE) throw new IllegalArgumentException("--explain-mode requires offline mode");
         return new RuntimeOptions(settings, values.get("local-address"), Path.of(values.getOrDefault("state-dir", ".")),
                 inventory, host, token, tokenFile, !flags.contains("disable-homekit"), oven, flags.contains("oven-homekit"),
-                ovenHost, ovenMac, ZoneId.of(values.getOrDefault("timezone", "Asia/Shanghai")), seconds,
+                ovenHost, ovenMac, ZoneId.of(values.getOrDefault("timezone", "Asia/Shanghai")), seconds, Duration.ofMinutes(holdMinutes), explain,
                 flags.contains("debug"), flags.contains("help"));
     }
     private static int integer(Map<String, String> values, String key, int fallback) {

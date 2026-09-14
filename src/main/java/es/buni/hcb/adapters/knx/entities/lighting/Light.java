@@ -43,6 +43,7 @@ public class Light extends Switch implements LightbulbAccessory {
 
     @Override
     public CompletableFuture<Void> setLightbulbPowerState(boolean powerState) throws Exception {
+        adapter.manualOverrides().hold(getLocation(), es.buni.hcb.automation.ManualOverrides.LIGHT_LEVEL);
         if (powerState) {
             on();
             Logger.info("HomeKit turned on " + getNamedId());
@@ -75,11 +76,15 @@ public class Light extends Switch implements LightbulbAccessory {
             return;
         }
 
-        CompletableFuture.runAsync(() -> {
+        long epoch = adapter.generation(), intent = adapter.intentRevision();
+        long manual = adapter.manualOverrides().revision(getLocation());
+        CompletableFuture.runAsync(() -> adapter.runInSession(epoch, () -> {
             try {
+                if (intent != adapter.intentRevision() || manual != adapter.manualOverrides().revision(getLocation())) return;
                 toggle();
 
                 Thread.sleep(200);
+                if (intent != adapter.intentRevision() || manual != adapter.manualOverrides().revision(getLocation())) return;
                 if (originalState) {
                     on();
                 } else {
@@ -88,6 +93,6 @@ public class Light extends Switch implements LightbulbAccessory {
             } catch (Exception e) {
                 Logger.error("HomeKit: Failed to restore state after identification", e);
             }
-        });
+        }));
     }
 }

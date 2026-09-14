@@ -13,7 +13,7 @@ public final class SimpleLightingControlPolicy extends ManagedLightingPolicy {
 
     public SimpleLightingControlPolicy(String name, KNXAdapter adapter, OccupancySensor occupancy,
                                        Light mainLight, Light sinkLight) {
-        super(name, adapter);
+        super(name, adapter, occupancy.getLocation(), PolicyKind.PRESENCE);
         this.occupancy = occupancy; this.mainLight = mainLight; this.sinkLight = sinkLight;
     }
     @Override protected void evaluate() { }

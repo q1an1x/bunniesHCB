@@ -20,6 +20,7 @@ public final class FakeKnx implements KnxConnectionFactory, AutoCloseable {
     public final AtomicInteger connections = new AtomicInteger();
     public volatile boolean failWrites, failColorRead;
     public volatile int failConnections;
+    public volatile int failAfterWrites = Integer.MAX_VALUE;
     public final KNXAdapter adapter;
     public volatile Session latest;
     public ScheduledExecutorService timersOverride;
@@ -60,7 +61,7 @@ public final class FakeKnx implements KnxConnectionFactory, AutoCloseable {
                         }
                     }
                     if (name.equals("write")) {
-                        if (failWrites) throw new KNXTimeoutException("simulated write failure");
+                        if (failWrites || writes.size() >= failAfterWrites) throw new KNXTimeoutException("simulated write failure");
                         String address = args[0] instanceof Datapoint dp ? dp.getMainAddress().toString() : args[0].toString();
                         writes.add(address + "=" + args[1]);
                     }

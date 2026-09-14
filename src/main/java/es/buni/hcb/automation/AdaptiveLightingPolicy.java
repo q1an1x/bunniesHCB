@@ -21,13 +21,14 @@ public final class AdaptiveLightingPolicy extends ManagedLightingPolicy {
     private long lastGeneration = -1;
 
     public AdaptiveLightingPolicy(String name, KNXAdapter adapter, Toggle enabled, int main, int middle, int sub) {
-        super(name, adapter);
+        super(name, adapter, enabled.getLocation(), PolicyKind.ADAPTIVE_COLOR);
         this.enabled = enabled;
         var address = new GroupAddress(main, middle, sub);
         target = new StateDP(address, "Color temperature", 7, "7.600");
-        adapter.declareCommand(name, "colorTemperature", address, "7.600");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "colorTemperature", address, "7.600");
     }
     @Override protected Duration interval() { return Duration.ofSeconds(30); }
+    @Override protected void resumed() { lastKelvin = -1; }
     @Override protected void handle(EntityEvent event) throws Exception {
         if (event instanceof StateChangedEvent state && state.entityId().equals(enabled.getNamedId())) evaluate();
     }

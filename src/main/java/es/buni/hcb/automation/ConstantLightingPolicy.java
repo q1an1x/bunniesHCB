@@ -27,14 +27,14 @@ public final class ConstantLightingPolicy extends ManagedLightingPolicy {
     public ConstantLightingPolicy(String name, KNXAdapter adapter, Toggle enabled, Toggle night,
             IlluminanceSensor lux, OccupancySensor occupancy, GroupAddress brightnessGroup,
             GroupAddress offGroup, Dimmable reference, double targetLux, double deadband) {
-        super(name, adapter);
+        super(name, adapter, enabled.getLocation(), PolicyKind.CONSTANT_LIGHT);
         if (!Double.isFinite(targetLux) || targetLux <= 0 || !Double.isFinite(deadband) || deadband <= 0)
             throw new IllegalArgumentException("Lighting target and deadband must be positive");
         this.enabled = enabled; this.night = night; this.lux = lux; this.occupancy = occupancy;
         this.brightnessGroup = brightnessGroup; this.offGroup = offGroup; this.reference = reference;
         this.targetLux = targetLux; this.deadband = deadband;
-        adapter.declareCommand(name, "brightness", brightnessGroup, "5.001");
-        adapter.declareCommand(name, "off", offGroup, "1.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "brightness", brightnessGroup, "5.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "off", offGroup, "1.001");
     }
     @Override protected Duration interval() { return Duration.ofSeconds(1); }
     @Override protected void handle(EntityEvent event) throws Exception {

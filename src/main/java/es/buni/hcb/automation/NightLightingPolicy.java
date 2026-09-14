@@ -21,12 +21,12 @@ public final class NightLightingPolicy extends ManagedLightingPolicy {
 
     public NightLightingPolicy(String name, KNXAdapter adapter, Toggle enabled, OccupancySensor occupancy,
                                GroupAddress sceneGroup, int scene, GroupAddress offGroup) {
-        super(name, adapter);
+        super(name, adapter, enabled.getLocation(), PolicyKind.NIGHT_LIGHT);
         if (scene < 0 || scene > 63) throw new IllegalArgumentException("Scene must be 0..63");
         this.enabled = enabled; this.occupancy = occupancy; this.sceneGroup = sceneGroup;
         this.scene = scene; this.offGroup = offGroup;
-        adapter.declareCommand(name, "scene", sceneGroup, "18.001");
-        adapter.declareCommand(name, "off", offGroup, "1.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "scene", sceneGroup, "18.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "off", offGroup, "1.001");
     }
     @Override protected Duration interval() { return Duration.ofSeconds(5); }
     @Override protected void started() { wasEnabled = enabled.isOn(); generation = adapter.generation(); }

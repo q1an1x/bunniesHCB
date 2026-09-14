@@ -16,7 +16,7 @@ class KnxLifecycleTest {
                 (receive, close) -> { calls.incrementAndGet(); throw new AssertionError("Network use"); }, Clock.systemUTC());
         try {
             adapter.configure(); int entities = adapter.entities().size(); adapter.configure(); adapter.start();
-            assertEquals(66, entities); assertEquals(entities, adapter.entities().size());
+            assertEquals(72, entities); assertEquals(entities, adapter.entities().size());
             assertEquals(0, calls.get()); assertEquals(0, adapter.getRegistry().getEventBus().listenerCount());
             assertEquals(244, adapter.bindings().size());
         } finally { adapter.stop(); }

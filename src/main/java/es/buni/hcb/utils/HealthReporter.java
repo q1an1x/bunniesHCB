@@ -24,11 +24,13 @@ public final class HealthReporter implements AutoCloseable {
     public void start() { timer.scheduleWithFixedDelay(this::write, 0, 10, TimeUnit.SECONDS); }
     private synchronized void write() {
         var entities = adapter.entities().stream().filter(KNXEntity.class::isInstance).map(KNXEntity.class::cast).toList();
-        var state = Map.of("updatedAt", Instant.now().toString(), "mode", adapter.settings().mode().name(),
+        var state = new java.util.LinkedHashMap<String, Object>(Map.of("updatedAt", Instant.now().toString(), "mode", adapter.settings().mode().name(),
                 "knxState", adapter.connectionState().name(), "generation", adapter.generation(),
                 "receivedTelegrams", adapter.receivedTelegrams(), "droppedTelegrams", adapter.droppedTelegrams(),
                 "silenceSeconds", adapter.settings().silenceTimeout().toSeconds(),
-                "entities", entities.size(), "entitiesWithKnownState", entities.stream().filter(KNXEntity::isStateKnown).count());
+                "entities", entities.size(), "entitiesWithKnownState", entities.stream().filter(KNXEntity::isStateKnown).count()));
+        if (adapter.houseModes() != null) state.put("houseMode", adapter.houseModes().status());
+        state.put("manualOverrides", adapter.manualOverrides().active());
         try {
             PrivateFiles.writeAtomically(file, gson.toJson(state).getBytes(StandardCharsets.UTF_8));
             writeFailed = false;

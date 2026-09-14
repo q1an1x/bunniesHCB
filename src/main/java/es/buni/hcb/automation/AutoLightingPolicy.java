@@ -15,12 +15,12 @@ public final class AutoLightingPolicy extends ManagedLightingPolicy {
 
     public AutoLightingPolicy(String name, KNXAdapter adapter, int scene, Toggle enabled, Toggle night,
                               OccupancySensor occupancy, GroupAddress sceneGroup, GroupAddress offGroup) {
-        super(name, adapter);
+        super(name, adapter, enabled.getLocation(), PolicyKind.PRESENCE);
         if (scene < 0 || scene > 63) throw new IllegalArgumentException("Scene must be 0..63");
         this.scene = scene; this.enabled = enabled; this.night = night; this.occupancy = occupancy;
         this.sceneGroup = sceneGroup; this.offGroup = offGroup;
-        adapter.declareCommand(name, "scene", sceneGroup, "18.001");
-        adapter.declareCommand(name, "off", offGroup, "1.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "scene", sceneGroup, "18.001");
+        adapter.declarePolicyCommand(name, enabled.getLocation(), "off", offGroup, "1.001");
     }
     @Override protected void evaluate() { }
     @Override protected void handle(EntityEvent event) throws Exception {

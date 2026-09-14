@@ -140,6 +140,8 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
 
     @Override
     public CompletableFuture<Void> setBrightness(Integer value) throws Exception {
+        if (value == null || value < 0 || value > 100) throw new IllegalArgumentException("Brightness must be 0..100");
+        adapter.manualOverrides().hold(getLocation(), es.buni.hcb.automation.ManualOverrides.LIGHT_LEVEL);
         setBrightnessValue(value);
         Logger.info("HomeKit set " + getNamedId() + " brightness to " + brightness);
         return CompletableFuture.completedFuture(null);
