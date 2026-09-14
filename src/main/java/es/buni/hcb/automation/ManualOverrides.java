@@ -10,6 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Timed room-level ownership: feedback is never mistaken for a manual command. */
 public final class ManualOverrides {
     public static final Set<PolicyKind> LIGHT_LEVEL = Set.of(PolicyKind.PRESENCE, PolicyKind.CONSTANT_LIGHT, PolicyKind.NIGHT_LIGHT);
+    // Presence/night scene recalls may also contain a DALI color-temperature value.
+    public static final Set<PolicyKind> COLOR = Set.of(PolicyKind.ADAPTIVE_COLOR, PolicyKind.PRESENCE, PolicyKind.NIGHT_LIGHT);
     private record Target(String room, Set<PolicyKind> kinds) { }
     private record Key(String room, PolicyKind kind) { }
     private final KNXAdapter adapter;

@@ -40,12 +40,14 @@ class ManualOverridesTest {
             assertFalse(fake.adapter.manualOverrides().active().isEmpty());
         }
     }
-    @Test void colorHoldDoesNotDisablePresenceAndExplicitAutomationOnResumesColor() throws Exception {
+    @Test void colorHoldBlocksColorChangingScenesButLeavesBrightnessControlAvailable() throws Exception {
         try (var fake = new FakeKnx()) {
             var lamp = Tunable.fromConvention(fake.adapter,"bedroom.north","light.main",3,6,1);
             var enabled = new Toggle(fake.adapter,"bedroom.north","toggle.adaptivelighting",3,0,2);
             fake.adapter.register(lamp); fake.adapter.register(enabled); fake.start(); lamp.setColorTemperature(300);
             assertFalse(fake.adapter.permitsPolicy("bedroom.north", PolicyKind.ADAPTIVE_COLOR));
+            assertFalse(fake.adapter.permitsPolicy("bedroom.north", PolicyKind.NIGHT_LIGHT));
+            assertFalse(fake.adapter.permitsPolicy("bedroom.north", PolicyKind.PRESENCE));
             assertTrue(fake.adapter.permitsPolicy("bedroom.north", PolicyKind.CONSTANT_LIGHT));
             enabled.setSwitchState(true); assertTrue(fake.adapter.permitsPolicy("bedroom.north", PolicyKind.ADAPTIVE_COLOR));
         }

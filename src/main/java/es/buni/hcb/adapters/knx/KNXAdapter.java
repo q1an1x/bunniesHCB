@@ -97,7 +97,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         if (entity instanceof es.buni.hcb.adapters.knx.entities.lighting.Light) {
             for (KnxBinding binding : entity.bindings()) if (binding.writable())
                 manualOverrides.register(entity.getLocation(), binding.address(), binding.property().equals("colorTemperature")
-                        ? Set.of(PolicyKind.ADAPTIVE_COLOR) : ManualOverrides.LIGHT_LEVEL);
+                        ? ManualOverrides.COLOR : ManualOverrides.LIGHT_LEVEL);
         }
     }
 
@@ -113,7 +113,7 @@ public class KNXAdapter extends Adapter implements Reconnectable {
     public void declarePolicyCommand(String owner, String room, String property, GroupAddress address, String dpt) {
         declareCommand(owner, property, address, dpt);
         if (!dpt.equals("18.001")) manualOverrides.register(room, address, dpt.equals("7.600")
-                ? Set.of(PolicyKind.ADAPTIVE_COLOR) : ManualOverrides.LIGHT_LEVEL);
+                ? ManualOverrides.COLOR : ManualOverrides.LIGHT_LEVEL);
     }
 
     public List<KnxBinding> bindings() {
