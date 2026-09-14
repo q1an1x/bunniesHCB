@@ -2,7 +2,7 @@
 
 A local KNX home controller with HomeKit, lighting policies, and optional Home Assistant and Broadlink integrations. Wall controls linked directly to actuators in ETS remain independent of this process; software buttons and policies require HCB.
 
-The controller includes daily, away, sleep, movie, cleaning, and guest modes. A shared coordinator owns mode transitions; room-level manual holds keep lighting policies from immediately undoing a wall-button or HomeKit change. See [household modes and priorities](docs/house-modes.md).
+The current controller includes daily, away, sleep, movie, cleaning, and guest modes. A shared coordinator owns mode transitions; room-level manual holds keep HCB lighting policies from immediately undoing a wall-button or HomeKit change. See [household modes and priorities](docs/house-modes.md). The [panel and HomeKit interaction design](docs/control-experience.md) proposes the next model: household presence, independent room profiles, and scoped activities. That model and its ETS changes are not yet deployed; native sensor logic also needs explicit coordination.
 
 Requires Java 25. The Gradle wrapper is included. Start with offline validation:
 

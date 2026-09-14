@@ -24,7 +24,7 @@ python3 tools/audit_ets.py /private/home.knxproj \
   --contract /private/hcb-contract.json --output /private/ets-audit.json
 ```
 
-期望目录为 72 个实体（66 个 KNX 实体、6 个模式开关）、244 项 KNX 绑定。ETS 工具的退出码 0 允许存在 warning，必须阅读汇总和报告；当前项目仍有窗帘 stop 未关联、3 项无读响应、11 项多读响应和44 项子类型复核。详细拓扑报告留在私有目录。
+期望目录为 72 个实体（66 个 KNX 实体、6 个模式开关）、255 项 KNX 绑定（包含新增 11 项只观察的面板输入）。ETS 工具的退出码 0 允许存在 warning，必须阅读汇总和报告；当前项目仍有窗帘 stop 未关联、3 项无读响应、11 项多读响应和44 项子类型复核。详细拓扑报告留在私有目录。
 
 ## 3. 在 homelab 仅观察
 
