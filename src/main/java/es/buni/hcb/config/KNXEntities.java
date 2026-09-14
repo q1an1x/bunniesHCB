@@ -434,5 +434,6 @@ public class KNXEntities {
         // --- Automation
         adapter.register(new SceneController(adapter, 0, 0, 2));
         adapter.registerService(new SceneAutomationManager(adapter));
+        KNXPanelInputs.registerAll(adapter);
     }
 }

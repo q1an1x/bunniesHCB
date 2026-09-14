@@ -12,7 +12,17 @@ public final class ManualOverrides {
     public static final Set<PolicyKind> LIGHT_LEVEL = Set.of(PolicyKind.PRESENCE, PolicyKind.CONSTANT_LIGHT, PolicyKind.NIGHT_LIGHT);
     // Presence/night scene recalls may also contain a DALI color-temperature value.
     public static final Set<PolicyKind> COLOR = Set.of(PolicyKind.ADAPTIVE_COLOR, PolicyKind.PRESENCE, PolicyKind.NIGHT_LIGHT);
-    private record Target(String room, Set<PolicyKind> kinds) { }
+    private enum Input {
+        COMMAND, RELATIVE_STEP, OFF;
+        boolean accepts(byte[] data) {
+            if (this == COMMAND) return true;
+            if (data.length != 1) return false;
+            int value = Byte.toUnsignedInt(data[0]);
+            // DPT 3: both 0 and 8 are stop telegrams. They do not extend a hold.
+            return this == OFF ? value == 0 : value <= 15 && (value & 7) != 0;
+        }
+    }
+    private record Target(String room, Set<PolicyKind> kinds, Input input) { }
     private record Key(String room, PolicyKind kind) { }
     private final KNXAdapter adapter;
     private final Map<GroupAddress, Set<Target>> commands = new ConcurrentHashMap<>();
@@ -26,11 +36,21 @@ public final class ManualOverrides {
         duration = value;
     }
     public void register(String room, GroupAddress address, Set<PolicyKind> kinds) {
-        commands.computeIfAbsent(address, ignored -> ConcurrentHashMap.newKeySet()).add(new Target(room, Set.copyOf(kinds)));
+        register(room, address, kinds, Input.COMMAND);
+    }
+    public void registerRelative(String room, GroupAddress address, Set<PolicyKind> kinds) {
+        register(room, address, kinds, Input.RELATIVE_STEP);
+    }
+    public void registerOff(String room, GroupAddress address) {
+        register(room, address, LIGHT_LEVEL, Input.OFF);
+    }
+    private void register(String room, GroupAddress address, Set<PolicyKind> kinds, Input input) {
+        commands.computeIfAbsent(address, ignored -> ConcurrentHashMap.newKeySet()).add(new Target(room, Set.copyOf(kinds), input));
     }
     public void observe(ProcessEvent event) {
         if (event.getServiceCode() != 0x80 || adapter.isLocalSource(event)) return;
-        for (Target target : commands.getOrDefault(event.getDestination(), Set.of())) hold(target.room(), target.kinds());
+        for (Target target : commands.getOrDefault(event.getDestination(), Set.of()))
+            if (target.input().accepts(event.getASDU())) hold(target.room(), target.kinds());
     }
     public void hold(String room, Set<PolicyKind> kinds) {
         revisions.computeIfAbsent(room, ignored -> new java.util.concurrent.atomic.AtomicLong()).incrementAndGet();

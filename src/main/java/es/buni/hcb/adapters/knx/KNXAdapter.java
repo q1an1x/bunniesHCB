@@ -110,6 +110,10 @@ public class KNXAdapter extends Adapter implements Reconnectable {
         serviceBindings.add(new KnxBinding(owner, property, address, dpt, KnxBinding.Role.COMMAND));
         allowWrite(address, dpt);
     }
+    /** Observe a native KNX control without gaining permission to read or write it. */
+    public void declareEvent(String owner, String property, GroupAddress address, String dpt) {
+        serviceBindings.add(new KnxBinding(owner, property, address, dpt, KnxBinding.Role.EVENT));
+    }
     public void declarePolicyCommand(String owner, String room, String property, GroupAddress address, String dpt) {
         declareCommand(owner, property, address, dpt);
         if (!dpt.equals("18.001")) manualOverrides.register(room, address, dpt.equals("7.600")

@@ -18,7 +18,7 @@ class KnxLifecycleTest {
             adapter.configure(); int entities = adapter.entities().size(); adapter.configure(); adapter.start();
             assertEquals(72, entities); assertEquals(entities, adapter.entities().size());
             assertEquals(0, calls.get()); assertEquals(0, adapter.getRegistry().getEventBus().listenerCount());
-            assertEquals(244, adapter.bindings().size());
+            assertEquals(255, adapter.bindings().size());
         } finally { adapter.stop(); }
     }
     @Test void reconnectRetainsEntitiesAndStartsServicesOnlyOnce() throws Exception {
