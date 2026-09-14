@@ -9,10 +9,7 @@ import es.buni.hcb.adapters.knx.entities.lighting.Tunable;
 import es.buni.hcb.adapters.knx.entities.sensor.IlluminanceSensor;
 import es.buni.hcb.adapters.knx.entities.sensor.MotionSensor;
 import es.buni.hcb.adapters.knx.entities.sensor.OccupancySensor;
-import es.buni.hcb.automation.AdaptiveLightingPolicy;
-import es.buni.hcb.automation.AutoLightingPolicy;
-import es.buni.hcb.automation.ConstantLightingPolicy;
-import es.buni.hcb.automation.NightLightingPolicy;
+import es.buni.hcb.automation.*;
 import es.buni.hcb.config.knx.*;
 import io.calimero.GroupAddress;
 
@@ -203,32 +200,41 @@ public class KNXEntities {
         )).start();
 
         // --- Kitchen
-        adapter.register(new OccupancySensor(
+        OccupancySensor kitchenOccupancySensor = new OccupancySensor(
                 adapter, "kitchen", "sensor.presence",
                 1, 4, 1
-        ));
+        );
+        adapter.register(kitchenOccupancySensor);
 
         adapter.register(new IlluminanceSensor(
                 adapter, "kitchen", "sensor.illuminance",
                 1, 4, 2
         ));
 
-        adapter.register(Tunable.fromConvention(
+        Tunable kitchenMainLight = Tunable.fromConvention(
                 adapter, "kitchen", "light.main",
                 1, 1, 1
-        ));
+        );
+        adapter.register(kitchenMainLight);
+
         adapter.register(Tunable.fromConvention(
                 adapter, "kitchen", "light.displaycabinet",
                 1, 2, 1
         ));
-        adapter.register(Tunable.fromConvention(
+
+        Tunable kitchenSinkLight = Tunable.fromConvention(
                 adapter, "kitchen", "light.sink",
                 1, 3, 1
-        ));
+        );
+        adapter.register(kitchenSinkLight);
         adapter.register(Dimmable.fromConvention(
                 adapter, "kitchen", "light.dining",
                 2, 4, 31
         ));
+
+        (new SimpleLightingControlPolicy("automation.kitchen.sinklightingcontrol", adapter,
+                kitchenOccupancySensor, kitchenMainLight, kitchenSinkLight
+        )).start();
 
         // --- Bedroom (North)
         OccupancySensor bedroomNorthOccupancySensor = new OccupancySensor(
