@@ -1,52 +1,52 @@
 package es.buni.hcb.adapters.knx;
 
-import es.buni.hcb.utils.Logger;
+import java.time.Duration;
+import java.util.concurrent.*;
+import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
-public class HealthMonitor {
-    private final KNXAdapter adapter;
-
-    private final long heartbeatInterval;
-    private volatile long lastSeen = System.currentTimeMillis();
-
-    private final ScheduledExecutorService scheduler =
-            Executors.newSingleThreadScheduledExecutor();
+/**
+ * The installation emits online telegrams every 15 seconds. Any received telegram
+ * proves the receive path is alive; silence for 45 seconds requests reconnection.
+ * This deliberately does not diagnose individual sensors or require a special GA.
+ */
+public final class HealthMonitor {
+    private final Reconnectable adapter;
+    private final BooleanSupplier ready;
+    private final LongSupplier nanoTime;
+    private final long silenceNanos;
+    private volatile long lastSeen;
+    private ScheduledExecutorService scheduler;
+    private boolean closed;
 
     public HealthMonitor(KNXAdapter adapter) {
-        this(adapter, 15000);
+        this(adapter, adapter::isReady, System::nanoTime, adapter.settings().silenceTimeout());
     }
 
-    public HealthMonitor(KNXAdapter adapter, long heartbeatInterval) {
+    HealthMonitor(Reconnectable adapter, BooleanSupplier ready, LongSupplier nanoTime, Duration silence) {
+        if (silence.isZero() || silence.isNegative()) throw new IllegalArgumentException("silence <= 0");
         this.adapter = adapter;
-        this.heartbeatInterval = heartbeatInterval;
-
-        scheduler.scheduleAtFixedRate(
-                this::checkHealth,
-                heartbeatInterval,
-                heartbeatInterval,
-                TimeUnit.MILLISECONDS
-        );
+        this.ready = ready;
+        this.nanoTime = nanoTime;
+        this.silenceNanos = silence.toNanos();
+        reset();
     }
 
-    public void shutdown() {
-        scheduler.shutdownNow();
+    public synchronized void start() {
+        if (closed || scheduler != null) return;
+        scheduler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofPlatform().daemon().name("knx-health").factory());
+        scheduler.scheduleWithFixedDelay(this::checkHealth, 5, 5, TimeUnit.SECONDS);
     }
 
-    public void receivedTelegram() {
-        lastSeen = System.currentTimeMillis();
-    }
+    public void reset() { lastSeen = nanoTime.getAsLong(); }
+    public void receivedTelegram() { lastSeen = nanoTime.getAsLong(); }
+    public synchronized void shutdown() { closed = true; if (scheduler != null) scheduler.shutdownNow(); }
 
-    private void checkHealth() {
-        long now = System.currentTimeMillis();
-        if (now - lastSeen > ( heartbeatInterval * 3 )) {
-            adapter.reconnect(
-                    "KNX heartbeat timeout"
-            );
-        } else if (now - lastSeen > ( heartbeatInterval * 2 )) {
-            Logger.warn("KNX heartbeat about to timeout");
+    void checkHealth() {
+        // Synchronization/startup is excluded, then reset() grants a full silence window.
+        if (ready.getAsBoolean() && nanoTime.getAsLong() - lastSeen >= silenceNanos) {
+            adapter.reconnect("no received telegrams for " + Duration.ofNanos(silenceNanos).toSeconds() + "s");
         }
     }
 }

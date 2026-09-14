@@ -39,7 +39,9 @@ public class BSHOven extends Entity {
     private final AtomicBoolean syncPending = new AtomicBoolean(false);
 
     private int consecutivePollFailures = 0;
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2,
+            Thread.ofPlatform().daemon().name("oven-worker-", 0).factory());
+    private volatile boolean authenticated;
 
     private volatile OvenState state;
 
@@ -55,7 +57,7 @@ public class BSHOven extends Entity {
 
         if (!builder.isModeSet()) {
             builder.setMode(OvenMode.CONVECTION);
-            homeKitMenu.getOvenModeCallback().changed();
+            if (homeKitMenu.getOvenModeCallback() != null) homeKitMenu.getOvenModeCallback().changed();
         }
 
         int clampedTemp;
@@ -129,12 +131,12 @@ public class BSHOven extends Entity {
             getUncommittedCommandBuilder()
                     .setTemperature(mode.getDefaultTemperature());
         }
-        homeKitTemperature.getTemperatureCallback().changed();
+        if (homeKitTemperature.getTemperatureCallback() != null) homeKitTemperature.getTemperatureCallback().changed();
     }
 
     public OvenMode getMode() {
         if (uncommittedCommandBuilder != null) {
-            if (uncommittedCommandBuilder.getMode() != null) {
+            if (uncommittedCommandBuilder.isModeSet()) {
                 return uncommittedCommandBuilder.getMode();
             }
         }
@@ -265,14 +267,15 @@ public class BSHOven extends Entity {
     public void initialize() {
         try {
             Logger.info("Initializing Oven: " + host);
-            adapter.authenticate(host, port, mac, SIEMENS_OVEN_DEV_TYPE);
             pollState();
-
-            scheduler.schedule(this::safePoll, 1, TimeUnit.SECONDS);
             scheduleNextSyncStep(true);
-
-        } catch (IOException e) {
+        } catch (Exception e) {
             Logger.error("Failed to init oven", e);
+        } finally {
+            if (!scheduler.isShutdown()) {
+                scheduler.schedule(this::safePoll, 1, TimeUnit.SECONDS);
+                scheduleNextSyncStep(false);
+            }
         }
     }
 
@@ -292,6 +295,7 @@ public class BSHOven extends Entity {
     }
 
     private void scheduleNextSyncStep(boolean immediate) {
+        if (scheduler.isShutdown()) return;
         final long now = System.currentTimeMillis();
 
         long baseTime = immediate ? now : (now + SYNC_INTERVAL_MS);
@@ -314,10 +318,11 @@ public class BSHOven extends Entity {
             consecutivePollFailures = 0;
         }
         catch (Exception e) {
+            authenticated = false;
             consecutivePollFailures++;
 
             if (consecutivePollFailures >= 3) {
-                int exponent = consecutivePollFailures - 3;
+                int exponent = Math.min(consecutivePollFailures - 3, 10);
                 nextDelay = Math.min(
                         POLL_INTERVAL_SECONDS * (1L << exponent),
                         MAX_BACKOFF_SECONDS
@@ -333,10 +338,14 @@ public class BSHOven extends Entity {
             }
         }
 
-        scheduler.schedule(this::safePoll, nextDelay, TimeUnit.SECONDS);
+        if (!scheduler.isShutdown()) scheduler.schedule(this::safePoll, nextDelay, TimeUnit.SECONDS);
     }
 
     public synchronized void pollState() throws IOException {
+        if (!authenticated) {
+            adapter.authenticate(host, port, mac, devType);
+            authenticated = true;
+        }
         OvenState oldState = state;
         boolean wasActive = isActive();
         state = OvenState.fromJsonObject(
@@ -361,8 +370,8 @@ public class BSHOven extends Entity {
         }
 
         if (oldState.isStandingBy() != state.isStandingBy()) {
-            homeKitMenu.getOvenStateCallback().changed();
-            homeKitTemperature.getOvenStateCallback().changed();
+            if (homeKitMenu.getOvenStateCallback() != null) homeKitMenu.getOvenStateCallback().changed();
+            if (homeKitTemperature.getOvenStateCallback() != null) homeKitTemperature.getOvenStateCallback().changed();
         }
 
         if (oldState.isRunning() != state.isRunning()) {

@@ -24,11 +24,17 @@ public abstract class HomeAssistantEntity extends Entity {
 
     public abstract void onStateChanged(JsonObject newState);
 
+    public void unavailable() {
+        JsonObject state = new JsonObject(); state.addProperty("state", "unavailable"); onStateChanged(state);
+    }
+
     protected void callService(String domain, String service) {
         callService(domain, service, Collections.emptyMap());
     }
 
     protected void callService(String domain, String service, Map<String, Object> data) {
-        adapter.callService(domain, service, this.haEntityId, data);
+        adapter.callService(domain, service, this.haEntityId, data).whenComplete((value, failure) -> {
+            if (failure != null) es.buni.hcb.utils.Logger.error("HA command failed for " + getNamedId() + ": " + domain + "." + service);
+        });
     }
 }

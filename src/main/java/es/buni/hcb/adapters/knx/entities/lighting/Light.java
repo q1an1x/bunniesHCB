@@ -38,7 +38,7 @@ public class Light extends Switch implements LightbulbAccessory {
 
     @Override
     public CompletableFuture<Boolean> getLightbulbPowerState() {
-        return CompletableFuture.completedFuture(isOn());
+        return stateFuture(statusSwitchAddress, isOn());
     }
 
     @Override
@@ -66,6 +66,7 @@ public class Light extends Switch implements LightbulbAccessory {
 
     @Override
     public void identify() {
+        if (!hasSwitchState()) return;
         boolean originalState;
         try {
             originalState = isOn();

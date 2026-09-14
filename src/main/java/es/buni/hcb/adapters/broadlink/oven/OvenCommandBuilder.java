@@ -43,7 +43,7 @@ public class OvenCommandBuilder {
     }
 
     public OvenMode getMode() {
-        return OvenMode.values()[json.get("mu_seqno").getAsInt()];
+        return isModeSet() ? OvenMode.values()[json.get("mu_seqno").getAsInt()] : OvenMode.NONE;
     }
 
     public boolean isTemperatureSet() {
@@ -78,6 +78,7 @@ public class OvenCommandBuilder {
     }
 
     public OvenCommandBuilder setDuration(int seconds) {
+        if (seconds < 0) throw new IllegalArgumentException("Duration must not be negative");
         json.addProperty("mu_heat_tm", seconds);
         return this;
     }
@@ -97,7 +98,7 @@ public class OvenCommandBuilder {
     }
 
     public JsonObject build() {
-        return json;
+        return json.deepCopy();
     }
 
     private void addBooleanProperty(String property, boolean value) {

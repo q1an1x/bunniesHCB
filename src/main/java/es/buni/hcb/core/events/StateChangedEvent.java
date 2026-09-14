@@ -4,8 +4,16 @@ public record StateChangedEvent(
         String entityId,
         String property,
         Object value,
-        long timestamp
+        long timestamp,
+        Origin origin
 ) implements EntityEvent {
+
+    public enum Origin { LOCAL, AUTOMATION, BUS_WRITE, BUS_RESPONSE, BUS_ECHO }
+
+    public static StateChangedEvent fromBus(String id, String property, Object value, boolean response) {
+        return new StateChangedEvent(id, property, value, System.currentTimeMillis(),
+                response ? Origin.BUS_RESPONSE : Origin.BUS_WRITE);
+    }
 
     public static StateChangedEvent of(
             String entityId,
@@ -27,7 +35,8 @@ public record StateChangedEvent(
                 entityId,
                 property,
                 value,
-                System.currentTimeMillis()
+                System.currentTimeMillis(),
+                Origin.LOCAL
         );
     }
 }

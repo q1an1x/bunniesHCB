@@ -32,7 +32,6 @@ public class Logger {
 
     public static void critical(String message, Throwable throwable) {
         log("CRITICAL", message, throwable);
-        System.exit(1);
     }
 
     private static void log(String level, String message, Throwable throwable) {

@@ -24,13 +24,18 @@ public abstract class Button extends KNXEntity {
     }
 
     @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        return java.util.List.of(binding("press", listeningGroupAddress, "1.001", es.buni.hcb.adapters.knx.KnxBinding.Role.EVENT));
+    }
+
+    @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
-        return true;
+        return event.getServiceCode() == 0x80 && event.getASDU().length == 1;
     }
 
     @Override
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
-        onButtonPressed();
+        if (adapter.isAutomationReady()) onButtonPressed();
     }
 
     protected abstract void onButtonPressed();

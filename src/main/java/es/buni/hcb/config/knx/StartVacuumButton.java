@@ -18,13 +18,26 @@ public class StartVacuumButton extends Button {
     }
 
     @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        return java.util.List.of(binding("press", groupAddresses().iterator().next(), "3.007", es.buni.hcb.adapters.knx.KnxBinding.Role.EVENT));
+    }
+
+    @Override
+    protected boolean updateState(io.calimero.GroupAddress address, io.calimero.process.ProcessEvent event) {
+        if (event.getServiceCode() != 0x80 || event.getASDU().length != 1) return false;
+        int value = event.getASDU()[0] & 0xff;
+        // ETS uses Button B2's dimming object. The release/stop nibble must not start cleaning.
+        return value <= 0x0f && (value & 7) != 0;
+    }
+
+    @Override
     protected void onButtonPressed() {
         Entity entity = adapter.getRegistry().get(TARGET_VACUUM_ID);
 
         if (entity instanceof VacuumRobot vacuum) {
             Logger.info("KNX button: starting vacuum " + TARGET_VACUUM_ID);
 
-            if (! vacuum.isCleaning()) {
+            if (vacuum.hasKnownState() && !vacuum.isCleaning()) {
                 vacuum.startCleaning();
             }
         }

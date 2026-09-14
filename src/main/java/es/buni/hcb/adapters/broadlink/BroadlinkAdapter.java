@@ -79,6 +79,8 @@ public class BroadlinkAdapter extends Adapter {
     }
 
     public boolean authenticate(String host, int port, byte[] mac, int devtype) throws IOException {
+        queueLock.lock();
+        try {
         deviceId = 0;
         updateAesKey(hexToBytes(INIT_KEY));
 
@@ -92,6 +94,7 @@ public class BroadlinkAdapter extends Adapter {
         checkError(response);
 
         byte[] payload = decrypt(Arrays.copyOfRange(response, 0x38, response.length));
+        if (payload.length < 20) throw new IOException("Truncated Broadlink authentication response");
 
         deviceId = ByteBuffer.wrap(payload, 0, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
         byte[] newKey = Arrays.copyOfRange(payload, 0x04, 0x14);
@@ -99,9 +102,14 @@ public class BroadlinkAdapter extends Adapter {
 
         Logger.info("Broadlink authenticated, device ID: " + deviceId);
         return true;
+        } finally { queueLock.unlock(); }
     }
 
     public byte[] sendPacket(String host, int port, byte[] mac, int devtype, int packetType, byte[] payload) throws IOException {
+        return sendPacket(host, port, mac, devtype, packetType, payload, true);
+    }
+
+    private byte[] sendPacket(String host, int port, byte[] mac, int devtype, int packetType, byte[] payload, boolean retrySafe) throws IOException {
         queueLock.lock();
         try {
             long currentTime = System.currentTimeMillis();
@@ -124,10 +132,12 @@ public class BroadlinkAdapter extends Adapter {
             InetAddress address = InetAddress.getByName(host);
 
             try (DatagramSocket socket = new DatagramSocket()) {
+                socket.connect(address, port); // Discard datagrams from other endpoints.
                 socket.setSoTimeout(DEFAULT_TIMEOUT);
 
                 int attempt = 0;
-                while (attempt < MAX_RETRIES) {
+                int attempts = retrySafe ? MAX_RETRIES : 1;
+                while (attempt < attempts) {
                     try {
                         if (Debug.ENABLED && attempt > 0) {
                             Logger.info("Retry attempt " + attempt + " for " + host);
@@ -144,7 +154,7 @@ public class BroadlinkAdapter extends Adapter {
 
                     } catch (Exception e) {
                         attempt++;
-                        if (attempt >= MAX_RETRIES) {
+                        if (attempt >= attempts) {
                             throw e;
                         }
 
@@ -233,7 +243,7 @@ public class BroadlinkAdapter extends Adapter {
         }
 
         byte[] payload = encodePayload(2, state);
-        byte[] response = sendPacket(host, port, mac, devtype, 0x6A, payload);
+        byte[] response = sendPacket(host, port, mac, devtype, 0x6A, payload, false);
         checkError(response);
         return decodePayload(response);
     }
@@ -266,14 +276,19 @@ public class BroadlinkAdapter extends Adapter {
     }
 
     private JsonObject decodePayload(byte[] response) {
-        byte[] decrypted = decrypt(Arrays.copyOfRange(response, 0x38, response.length));
+        if (response.length < 0x48 || (response.length - 0x38) % 16 != 0)
+            throw new IllegalArgumentException("Malformed Broadlink encrypted response length");
+        return decodeJsonPayload(decrypt(Arrays.copyOfRange(response, 0x38, response.length)));
+    }
+
+    static JsonObject decodeJsonPayload(byte[] decrypted) {
+        if (decrypted.length < 14) throw new IllegalArgumentException("Truncated Broadlink payload");
         int jsonLength = ByteBuffer.wrap(decrypted, 0x0A, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
-        String json = new String(decrypted, 0x0E, jsonLength, StandardCharsets.UTF_8);
-
-        if (Debug.ENABLED) {
-            Logger.info("Received " + json);
-        }
-
-        return gson.fromJson(json, JsonObject.class);
+        if (jsonLength < 2 || jsonLength > decrypted.length - 14)
+            throw new IllegalArgumentException("Invalid Broadlink JSON length");
+        String json = new String(decrypted, 14, jsonLength, StandardCharsets.UTF_8);
+        var parsed = com.google.gson.JsonParser.parseString(json);
+        if (!parsed.isJsonObject()) throw new IllegalArgumentException("Broadlink state must be an object");
+        return parsed.getAsJsonObject();
     }
 }

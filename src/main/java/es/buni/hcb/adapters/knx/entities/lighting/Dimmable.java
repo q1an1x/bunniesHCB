@@ -13,10 +13,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public class Dimmable extends Light implements AccessoryWithBrightness {
-    private static final long DIMMING_TIME_MS = 3000;
-
-    private volatile long brightnessLastSetAt = 0;
-
     protected final GroupAddress dimmingValueAddress;
     protected final GroupAddress statusDimmingValueAddress;
     protected final GroupAddress dimmingValueTimeAddress;
@@ -36,13 +32,22 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
         );
     }
 
+    @Override
+    public java.util.List<es.buni.hcb.adapters.knx.KnxBinding> bindings() {
+        var result = new java.util.ArrayList<>(super.bindings());
+        result.add(binding("brightness", dimmingValueAddress, "5.001", es.buni.hcb.adapters.knx.KnxBinding.Role.COMMAND));
+        result.add(binding("brightnessStatus", statusDimmingValueAddress, "5.001", es.buni.hcb.adapters.knx.KnxBinding.Role.STATUS));
+        return java.util.List.copyOf(result);
+    }
+
+    public boolean hasBrightnessState() { return known(statusDimmingValueAddress); }
+
     public int getBrightnessValue() {
         return brightness;
     }
 
     public void setBrightnessValue(int brightness) throws Exception {
-        this.brightness = brightness;
-        this.brightnessLastSetAt = System.currentTimeMillis();
+        if (brightness < 0 || brightness > 100) throw new IllegalArgumentException("Brightness must be 0..100");
         writeBrightness(brightness);
     }
 
@@ -76,16 +81,12 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
 
     @Override
     protected boolean updateState(GroupAddress address, ProcessEvent event) throws Exception {
-        if (address.equals(statusDimmingValueAddress) || address.equals(dimmingValueAddress)) {
-            if (System.currentTimeMillis() - brightnessLastSetAt < DIMMING_TIME_MS) {
-                return false;
-            }
-
+        if (address.equals(statusDimmingValueAddress)) {
             int newState = ProcessListener.asUnsigned(event, ProcessCommunication.SCALING);
-            if (newState != brightness) {
-                brightness = newState;
-                return true;
-            }
+            boolean changed = !known(address) || newState != brightness;
+            brightness = newState;
+            observed(address);
+            return changed;
         }
 
         return super.updateState(address, event);
@@ -95,9 +96,9 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
     protected void onStateUpdated(GroupAddress address, ProcessEvent event) {
         super.onStateUpdated(address, event);
 
-        if (address.equals(statusDimmingValueAddress) || address.equals(dimmingValueAddress)) {
+        if (address.equals(statusDimmingValueAddress)) {
             onBrightnessChanged(brightness);
-            publishStateChanged("brightness", brightness);
+            publishBusState("brightness", brightness, event);
         }
     }
 
@@ -111,17 +112,19 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
 
     @Override
     public void initialize() throws Exception {
-        readBrightness();
-
-        super.initialize();
+        Exception failure = null;
+        try { readBrightness(); } catch (Exception e) { failure = e; }
+        try { super.initialize(); } catch (Exception e) { if (failure == null) failure = e; else failure.addSuppressed(e); }
+        if (failure != null) throw failure;
     }
 
     private void readBrightness() throws Exception {
-        brightness = adapter.communicator().readUnsigned(statusDimmingValueAddress, ProcessCommunication.SCALING);
+        brightness = adapter.bus().readUnsigned(statusDimmingValueAddress, ProcessCommunication.SCALING);
+        observed(statusDimmingValueAddress);
     }
 
     private void writeBrightness(int brightness) throws Exception {
-        adapter.communicator().write(dimmingValueAddress, brightness, ProcessCommunication.SCALING);
+        adapter.bus().write(dimmingValueAddress, brightness, ProcessCommunication.SCALING);
     }
 
     @Override
@@ -132,14 +135,14 @@ public class Dimmable extends Light implements AccessoryWithBrightness {
 
     @Override
     public CompletableFuture<Integer> getBrightness() {
-        return CompletableFuture.completedFuture(getBrightnessValue());
+        return stateFuture(statusDimmingValueAddress, getBrightnessValue());
     }
 
     @Override
     public CompletableFuture<Void> setBrightness(Integer value) throws Exception {
         setBrightnessValue(value);
         Logger.info("HomeKit set " + getNamedId() + " brightness to " + brightness);
-        return null;
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override

@@ -13,7 +13,7 @@ public class MotionSensor extends BinarySensor implements MotionSensorAccessory 
 
     @Override
     public CompletableFuture<Boolean> getMotionDetected() {
-        return CompletableFuture.completedFuture(getState());
+        return stateFuture(stateAddress, getState());
     }
 
     @Override

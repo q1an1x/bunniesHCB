@@ -2,54 +2,41 @@ package es.buni.hcb.config.knx;
 
 import es.buni.hcb.adapters.knx.KNXAdapter;
 import es.buni.hcb.adapters.knx.entities.Button;
+import es.buni.hcb.adapters.knx.entities.Toggle;
 import es.buni.hcb.utils.Logger;
 import io.calimero.GroupAddress;
-
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
-public class DelayedOffButton extends Button {
-    private final Set<GroupAddress> groupAddresses;
+public final class DelayedOffButton extends Button {
+    private final Set<GroupAddress> targets;
     private final int delayMinutes;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> pending;
 
-    public DelayedOffButton(KNXAdapter adapter, String location, String id,
-                            int mainGroup, int middleGroup, int subGroup,
-                            Set<GroupAddress> groupAddresses) {
-        this(adapter, location, id, mainGroup, middleGroup, subGroup, groupAddresses, 30);
+    public DelayedOffButton(KNXAdapter adapter, String location, String id, int main, int middle, int sub, Set<GroupAddress> targets) {
+        this(adapter, location, id, main, middle, sub, targets, 30);
     }
-
-    public DelayedOffButton(KNXAdapter adapter, String location, String id,
-                            int mainGroup, int middleGroup, int subGroup,
-                            Set<GroupAddress> groupAddresses,
-                            int delayMinutes) {
-        super(
-                adapter, location, id,
-                mainGroup, middleGroup, subGroup
-        );
-
-        this.groupAddresses = groupAddresses;
-        this.delayMinutes = delayMinutes;
+    public DelayedOffButton(KNXAdapter adapter, String location, String id, int main, int middle, int sub,
+                            Set<GroupAddress> targets, int delayMinutes) {
+        super(adapter, location, id, main, middle, sub);
+        if (delayMinutes < 0) throw new IllegalArgumentException("Delay must not be negative");
+        this.targets = Set.copyOf(targets); this.delayMinutes = delayMinutes;
+        for (GroupAddress target : targets) adapter.declareCommand(getNamedId(), "off", target, "1.001");
     }
-
-    @Override
-    protected void onButtonPressed() {
-        try {
-            Logger.info(getNamedId() + " executing in " + delayMinutes + " minutes.");
-            scheduler.schedule(() -> {
+    @Override protected synchronized void onButtonPressed() {
+        if (pending != null) pending.cancel(false);
+        long epoch = adapter.generation();
+        pending = adapter.scheduler().schedule(() -> {
+            if (!adapter.isAutomationReady() || epoch != adapter.generation()) return;
+            for (GroupAddress address : targets.stream().sorted().toList()) {
                 try {
-                    for  (GroupAddress groupAddress : groupAddresses) {
-                        adapter.communicator().write(groupAddress, false);
-                        Logger.info("Delayed off executed for " + groupAddress);
-                    }
-                } catch (Exception e) {
-                    Logger.error("Failed to execute delayed off: " + e.getMessage());
-                }
-            }, delayMinutes, TimeUnit.MINUTES);
-        } catch (Exception e) {
-            Logger.error("Failed to activated delayed off: " + e.getMessage());
-        }
+                    var toggle = adapter.entities().stream().filter(e -> e instanceof Toggle t && t.groupAddresses().contains(address))
+                            .map(e -> (Toggle)e).findFirst();
+                    if (toggle.isPresent()) toggle.get().setSwitchState(false);
+                    else adapter.bus().write(address, false);
+                } catch (Exception e) { Logger.error("Delayed off failed for " + address, e); }
+            }
+        }, delayMinutes, TimeUnit.MINUTES);
     }
+    @Override public synchronized void shutdown() { if (pending != null) pending.cancel(false); }
 }

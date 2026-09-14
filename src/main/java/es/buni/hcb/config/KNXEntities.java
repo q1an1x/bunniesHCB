@@ -81,27 +81,28 @@ public class KNXEntities {
         adapter.register(bathroomAdaptiveToggle);
         adapter.register(bathroomNightToggle);
 
-        (new AutoLightingPolicy(
+        adapter.registerService(new AutoLightingPolicy(
                 "automation.bathroom.autolighting", adapter,
                 ScenesEnum.BATHROOM_MOTION.getSceneNumber(),
                 bathroomAutoToggle,
+                bathroomNightToggle,
                 bathroomOccupancySensor,
                 SCENE_RECALL_GROUP_ADDRESS,
                 new GroupAddress(5, 0 , 31)
-        )).start();
-        (new NightLightingPolicy(
+        ));
+        adapter.registerService(new NightLightingPolicy(
                 "automation.bathroom.nightlighting", adapter,
                 bathroomNightToggle,
                 bathroomOccupancySensor,
                 SCENE_RECALL_GROUP_ADDRESS,
                 ScenesEnum.BATHROOM_NIGHT.getSceneNumber(),
                 new GroupAddress(5, 0, 31)
-        )).start();
-        (new AdaptiveLightingPolicy(
-                "automation.bedroom.north.adaptivelighting", adapter,
+        ));
+        adapter.registerService(new AdaptiveLightingPolicy(
+                "automation.bathroom.adaptivelighting", adapter,
                 bathroomAdaptiveToggle,
                 5, 0, 22
-        )).start();
+        ));
 
         // --- Corridor
         adapter.register(new Toggle(
@@ -193,11 +194,11 @@ public class KNXEntities {
         );
         adapter.register(livingroomNightToggle);
 
-        (new AdaptiveLightingPolicy(
+        adapter.registerService(new AdaptiveLightingPolicy(
                 "automation.livingroom.adaptivelighting", adapter,
                 livingRoomAdaptiveToggle,
                 2, 0, 31
-        )).start();
+        ));
 
         // --- Kitchen
         OccupancySensor kitchenOccupancySensor = new OccupancySensor(
@@ -232,9 +233,9 @@ public class KNXEntities {
                 2, 4, 31
         ));
 
-        (new SimpleLightingControlPolicy("automation.kitchen.sinklightingcontrol", adapter,
+        adapter.registerService(new SimpleLightingControlPolicy("automation.kitchen.sinklightingcontrol", adapter,
                 kitchenOccupancySensor, kitchenMainLight, kitchenSinkLight
-        )).start();
+        ));
 
         // --- Bedroom (North)
         OccupancySensor bedroomNorthOccupancySensor = new OccupancySensor(
@@ -310,7 +311,7 @@ public class KNXEntities {
         ));
 
 
-        (new ConstantLightingPolicy(
+        adapter.registerService(new ConstantLightingPolicy(
                 "automation.bedroom.north.constantlighting", adapter,
                 bedroomNorthConstantToggle,
                 bedroomNorthNightToggle,
@@ -321,20 +322,20 @@ public class KNXEntities {
                 bedroomNorthMainLight,
                 200,
                 1
-        )).start();
-        (new NightLightingPolicy(
+        ));
+        adapter.registerService(new NightLightingPolicy(
                 "automation.bedroom.north.nightlighting", adapter,
                 bedroomNorthNightToggle,
                 bedroomNorthOccupancySensor,
                 SCENE_RECALL_GROUP_ADDRESS,
                 ScenesEnum.BEDROOM_NORTH_NIGHT.getSceneNumber(),
                 new GroupAddress(3, 0, 31)
-        )).start();
-        (new AdaptiveLightingPolicy(
+        ));
+        adapter.registerService(new AdaptiveLightingPolicy(
                 "automation.bedroom.north.adaptivelighting", adapter,
                 bedroomNorthAdaptiveToggle,
                 3, 0, 22
-        )).start();
+        ));
 
         // --- Bedroom (South)
         OccupancySensor bedroomSouthOccupancySensor = new OccupancySensor(
@@ -403,7 +404,7 @@ public class KNXEntities {
         adapter.register(new TVPowerButton(adapter));
         adapter.register(new TVPlayPauseButton(adapter));
 
-        (new ConstantLightingPolicy(
+        adapter.registerService(new ConstantLightingPolicy(
                 "automation.bedroom.south.constantlighting", adapter,
                 bedroomSouthConstantToggle,
                 bedroomSouthNightToggle,
@@ -414,24 +415,24 @@ public class KNXEntities {
                 bedroomSouthMainLight,
                 200,
                 1
-        )).start();
-        (new NightLightingPolicy(
+        ));
+        adapter.registerService(new NightLightingPolicy(
                 "automation.bedroom.south.nightlighting", adapter,
                 bedroomSouthNightToggle,
                 bedroomSouthOccupancySensor,
                 SCENE_RECALL_GROUP_ADDRESS,
                 ScenesEnum.BEDROOM_SOUTH_NIGHT.getSceneNumber(),
                 new GroupAddress(4, 0, 31)
-        )).start();
-        (new AdaptiveLightingPolicy(
+        ));
+        adapter.registerService(new AdaptiveLightingPolicy(
                 "automation.bedroom.south.adaptivelighting", adapter,
                 bedroomSouthAdaptiveToggle,
                 4, 0, 22
-        )).start();
+        ));
 
 
         // --- Automation
         adapter.register(new SceneController(adapter, 0, 0, 2));
-        (new SceneAutomationManager(adapter)).start();
+        adapter.registerService(new SceneAutomationManager(adapter));
     }
 }

@@ -45,3 +45,14 @@ bin/
 
 homekit-auth.bin
 configured-names.properties
+
+# Runtime state and private installation evidence
+health.json
+hcb.lock
+*.knxproj
+*.knxprojarchive
+*.pcap
+*.pcapng
+.env
+*.env
+__pycache__/

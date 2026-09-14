@@ -40,8 +40,8 @@ public abstract class Adapter {
             throw new IllegalStateException("Duplicate entity id: " + entity.getNamedId());
         }
 
-        entities.put(entity.getNamedId(), entity);
         registry.register(entity);
+        entities.put(entity.getNamedId(), entity);
     }
 
     public void unregister(Entity entity) {
@@ -57,7 +57,7 @@ public abstract class Adapter {
                 if (e instanceof KNXTimeoutException) {
                     Logger.warn("Timeout while reading knx entity: " + entity.getNamedId());
                 } else {
-                    Logger.critical("Entity initialization failed: " + entity.getNamedId(), e);
+                    Logger.error("Entity initialization failed: " + entity.getNamedId(), e);
                 }
             }
         }

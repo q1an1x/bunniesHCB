@@ -21,6 +21,7 @@ public class TVPowerButton extends Button {
         if (entity instanceof AndroidTV) {
             AndroidTV tv = (AndroidTV) entity;
 
+            if (!tv.hasKnownState()) { Logger.warn("TV state unavailable; toggle ignored"); return; }
             if (tv.isOn()) {
                 Logger.info("KNX button: Toggling TV OFF");
                 tv.turnOff();

@@ -1,76 +1,39 @@
 package es.buni.hcb.interfaces.homekit;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.UncheckedIOException;
+import es.buni.hcb.utils.PrivateFiles;
+import java.io.*;
 import java.nio.file.*;
-import java.util.Objects;
-import java.util.Properties;
+import java.util.*;
 
-public class ConfiguredNameStore {
-
+public final class ConfiguredNameStore {
+    private static ConfiguredNameStore defaultStore;
+    private static Path defaultPath = Path.of("configured-names.properties");
     private final Path file;
-    private final Properties properties = new Properties();
+    private Properties properties = new Properties();
 
-    public static ConfiguredNameStore getDefault() {
-        try {
-            return getDefaultInternal();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to initialize ConfiguredNameStore", e);
-        }
+    public static synchronized void configureDefault(Path path) {
+        defaultPath = path.toAbsolutePath().normalize();
+        defaultStore = null;
     }
-
-    public static ConfiguredNameStore getDefaultInternal() throws IOException {
-        return new ConfiguredNameStore(Paths.get("configured-names.properties"));
+    public static synchronized ConfiguredNameStore getDefault() {
+        try { return getDefaultInternal(); }
+        catch (IOException e) { throw new UncheckedIOException(e); }
     }
-
+    public static synchronized ConfiguredNameStore getDefaultInternal() throws IOException {
+        if (defaultStore == null) defaultStore = new ConfiguredNameStore(defaultPath);
+        return defaultStore;
+    }
     public ConfiguredNameStore(Path file) throws IOException {
-        this.file = Objects.requireNonNull(file);
-
-        if (Files.exists(file)) {
-            try (InputStream in = Files.newInputStream(file)) {
-                properties.load(in);
-            }
-        } else {
-            Files.createDirectories(file.getParent());
-            Files.createFile(file);
-        }
+        this.file = Objects.requireNonNull(file).toAbsolutePath().normalize();
+        if (Files.exists(this.file)) try (var in = Files.newInputStream(this.file)) { properties.load(in); }
     }
-
-    public synchronized String get(String key) {
-        String value = properties.getProperty(key);
-        if (value == null) {
-            return key;
-        }
-
-        return value;
-    }
-
+    public synchronized String get(String key) { return properties.getProperty(key, key); }
     public synchronized void set(String key, String name) throws IOException {
-        Objects.requireNonNull(key);
-        Objects.requireNonNull(name);
-
-        properties.setProperty(key, name);
-        persist();
-    }
-
-    private void persist() throws IOException {
-        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-
-        try (OutputStream out = Files.newOutputStream(
-                tmp,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        )) {
-            properties.store(out, "ConfiguredNameStore");
-        }
-
-        Files.move(
-                tmp,
-                file,
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-        );
+        Objects.requireNonNull(key); Objects.requireNonNull(name);
+        Properties next = new Properties(); next.putAll(properties); next.setProperty(key, name);
+        var bytes = new ByteArrayOutputStream();
+        next.store(bytes, "Configured names");
+        PrivateFiles.writeAtomically(file, bytes.toByteArray());
+        properties = next;
     }
 }

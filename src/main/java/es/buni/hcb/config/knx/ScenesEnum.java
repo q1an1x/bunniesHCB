@@ -9,11 +9,11 @@ public enum ScenesEnum {
     BATHROOM_NIGHT(3 - 1, "bathroom"),
     BATHROOM_WASHBASIN(
             19 - 1, "bathroom",
-            EnumSet.of(AutomationType.CONSTANT, AutomationType.NIGHT)
+            EnumSet.of(AutomationType.AUTO, AutomationType.NIGHT)
     ),
     BATHROOM_SHOWER(
             20 - 1, "bathroom",
-            EnumSet.of(AutomationType.CONSTANT, AutomationType.NIGHT)
+            EnumSet.of(AutomationType.AUTO, AutomationType.NIGHT)
     ),
 
     LIVINGROOM_NIGHT(4 - 1, "livingroom"),
@@ -80,7 +80,7 @@ public enum ScenesEnum {
     ),
     BATHROOM_ALL_OFF(
             24 - 1, "bathroom",
-            EnumSet.of(AutomationType.CONSTANT, AutomationType.NIGHT)
+            EnumSet.of(AutomationType.AUTO, AutomationType.NIGHT)
     ),
     BEDROOM_NORTH_ALL_OFF(
             25 - 1, "bedroom.north",
